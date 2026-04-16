@@ -1,0 +1,368 @@
+{% extends "frontend/base.html" %}
+{% block title %}Planning — HospiPlan{% endblock %}
+
+{% block extra_css %}
+<style>
+  .planning-grid { overflow-x: auto; }
+  .planning-table { min-width: 900px; border-collapse: separate; border-spacing: 0; }
+  .planning-table th, .planning-table td {
+    border: 1px solid #e9ecef; padding: .4rem .6rem;
+    vertical-align: top; font-size: .82rem;
+  }
+  .planning-table thead th {
+    background: #1a2744; color: #fff; text-align: center;
+    font-weight: 600; white-space: nowrap; position: sticky; top: 0; z-index: 2;
+  }
+  .planning-table thead th.today-col { background: #2e86c1; }
+  .planning-table tbody td:first-child {
+    background: #f8f9fa; font-weight: 600;
+    color: #1a5276; min-width: 160px; position: sticky; left: 0; z-index: 1;
+  }
+  .shift-cell {
+    background: #e8f4fd; border-radius: 6px;
+    padding: .25rem .4rem; margin-bottom: .2rem;
+    font-size: .78rem; cursor: default;
+    border-left: 3px solid #2e86c1;
+  }
+  .shift-cell.night  { background: #1a2744; color: #b0bec5; border-color: #6c757d; }
+  .shift-cell.absent { background: #fff3cd; border-color: #f0ad4e; color: #856404; }
+  .shift-cell.empty  { background: #f8d7da; border-color: #dc3545; color: #721c24; }
+  .planning-table td.today-col { background: #f0f7ff; }
+  .planning-table tbody tr:hover td { background: #e8f4fd !important; }
+  .planning-table tbody tr:hover td:first-child { background: #d0e8f8 !important; }
+
+  .view-toggle .btn { font-size: .85rem; }
+  .week-nav { gap: .5rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="page-title">
+    <h1><i class="bi bi-grid-3x3-gap me-2"></i>Planning</h1>
+    <p id="week-label"></p>
+  </div>
+</div>
+
+<!-- Barre de contrôle -->
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <div class="d-flex flex-wrap align-items-center gap-3">
+
+      <!-- Navigation semaine -->
+      <div class="d-flex week-nav align-items-center">
+        <button class="btn btn-sm btn-outline-secondary" onclick="changeWeek(-1)">
+          <i class="bi bi-chevron-left"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-primary" onclick="goToday()">Aujourd'hui</button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="changeWeek(1)">
+          <i class="bi bi-chevron-right"></i>
+        </button>
+      </div>
+
+      <!-- Toggle vue -->
+      <div class="view-toggle btn-group" role="group">
+        <button type="button" class="btn btn-sm btn-primary active" id="btn-view-staff" onclick="setView('staff')">
+          <i class="bi bi-people me-1"></i>Par soignant
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="btn-view-service" onclick="setView('service')">
+          <i class="bi bi-hospital me-1"></i>Par service
+        </button>
+      </div>
+
+      <!-- Filtre service (vue service) -->
+      <div id="service-filter-wrap" class="d-none">
+        <select id="filter-service" class="form-select form-select-sm" onchange="renderPlanning()">
+          <option value="">Tous les services</option>
+        </select>
+      </div>
+
+      <div class="ms-auto text-muted small" id="planning-info"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Grille planning -->
+<div class="card">
+  <div class="card-body p-0 planning-grid">
+    <table class="planning-table" id="planning-table">
+      <thead id="planning-thead"></thead>
+      <tbody id="planning-tbody">
+        <tr><td colspan="8" class="text-center text-muted py-4">
+          <div class="spinner-border spinner-border-sm me-2"></div>Chargement…
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Légende -->
+<div class="d-flex gap-3 mt-3 flex-wrap" style="font-size:.8rem;">
+  <span><span class="shift-cell d-inline-block px-2">Garde de jour</span></span>
+  <span><span class="shift-cell night d-inline-block px-2">Garde de nuit</span></span>
+  <span><span class="shift-cell absent d-inline-block px-2">Absence</span></span>
+  <span><span class="shift-cell empty d-inline-block px-2">Poste non couvert</span></span>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── État global ────────────────────────────────────────────────────────
+let currentMonday = getMonday(new Date());
+let currentView   = 'staff';  // 'staff' | 'service'
+
+let allStaff       = [];
+let allShifts      = [];
+let allAssignments = [];
+let allAbsences    = [];
+let allServices    = [];
+let allCareUnits   = [];
+
+// ── Helpers date ───────────────────────────────────────────────────────
+function getMonday(d) {
+  const copy = new Date(d);
+  const day  = copy.getDay() || 7;
+  copy.setHours(0,0,0,0);
+  copy.setDate(copy.getDate() - day + 1);
+  return copy;
+}
+
+function addDays(d, n) {
+  const r = new Date(d);
+  r.setDate(r.getDate() + n);
+  return r;
+}
+
+function toISO(d) { return d.toISOString().slice(0,10); }
+
+function fmtDay(d) {
+  return d.toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short' });
+}
+
+function changeWeek(n) { currentMonday = addDays(currentMonday, n * 7); renderPlanning(); }
+function goToday()     { currentMonday = getMonday(new Date()); renderPlanning(); }
+function setView(v) {
+  currentView = v;
+  document.getElementById('btn-view-staff').classList.toggle('active', v === 'staff');
+  document.getElementById('btn-view-staff').classList.toggle('btn-primary', v === 'staff');
+  document.getElementById('btn-view-staff').classList.toggle('btn-outline-primary', v !== 'staff');
+  document.getElementById('btn-view-service').classList.toggle('active', v === 'service');
+  document.getElementById('btn-view-service').classList.toggle('btn-primary', v === 'service');
+  document.getElementById('btn-view-service').classList.toggle('btn-outline-primary', v !== 'service');
+  document.getElementById('service-filter-wrap').classList.toggle('d-none', v !== 'service');
+  renderPlanning();
+}
+
+// ── Chargement données ─────────────────────────────────────────────────
+async function loadAll() {
+  const [staffRes, shiftRes, assRes, absRes, svcRes, cuRes] = await Promise.all([
+    apiFetch('/api/staff/?format=json'),
+    apiFetch('/api/shifts/?format=json'),
+    apiFetch('/api/assignments/?format=json'),
+    apiFetch('/api/absences/?format=json'),
+    apiFetch('/api/services/?format=json'),
+    apiFetch('/api/care-units/?format=json'),
+  ]);
+
+  allStaff       = await staffRes.json().then(d => d.results || d);
+  allShifts      = await shiftRes.json().then(d => d.results || d);
+  allAssignments = await assRes.json().then(d => d.results || d);
+  allAbsences    = await absRes.json().then(d => d.results || d);
+  allServices    = await svcRes.json().then(d => d.results || d);
+  allCareUnits   = await cuRes.json().then(d => d.results || d);
+
+  // Remplir filtre service
+  const sel = document.getElementById('filter-service');
+  allServices.forEach(s => sel.insertAdjacentHTML('beforeend',
+    `<option value="${s.id}">${s.name}</option>`));
+
+  renderPlanning();
+}
+
+// ── Rendu ──────────────────────────────────────────────────────────────
+function renderPlanning() {
+  const days = Array.from({length: 7}, (_, i) => addDays(currentMonday, i));
+  const todayISO = toISO(new Date());
+  const sunday = days[6];
+
+  // Libellé semaine
+  document.getElementById('week-label').textContent =
+    `Semaine du ${currentMonday.toLocaleDateString('fr-FR',{day:'2-digit',month:'long'})} au ${sunday.toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'})}`;
+
+  // En-tête
+  const thead = document.getElementById('planning-thead');
+  thead.innerHTML = `<tr>
+    <th>${currentView === 'staff' ? 'Soignant' : 'Service / Unité'}</th>
+    ${days.map(d => {
+      const iso = toISO(d);
+      const isToday = iso === todayISO;
+      return `<th class="${isToday ? 'today-col' : ''}">${fmtDay(d)}${isToday ? ' <span class="badge bg-warning text-dark" style="font-size:.65rem;">Auj.</span>' : ''}</th>`;
+    }).join('')}
+  </tr>`;
+
+  if (currentView === 'staff') renderByStaff(days, todayISO);
+  else renderByService(days, todayISO);
+}
+
+function renderByStaff(days, todayISO) {
+  const tbody = document.getElementById('planning-tbody');
+  const activeStaff = allStaff.filter(s => s.is_active);
+  document.getElementById('planning-info').textContent = `${activeStaff.length} soignant(s) actif(s)`;
+
+  // Index absences par staff+date
+  const absenceIdx = {};
+  allAbsences.forEach(a => {
+    if (!absenceIdx[a.staff]) absenceIdx[a.staff] = [];
+    absenceIdx[a.staff].push(a);
+  });
+
+  // Index assignments par staff
+  const assIdx = {};
+  allAssignments.forEach(a => {
+    if (!assIdx[a.staff]) assIdx[a.staff] = [];
+    assIdx[a.staff].push(a);
+  });
+
+  // Index shifts by id
+  const shiftById = {};
+  allShifts.forEach(s => { shiftById[s.id] = s; });
+
+  tbody.innerHTML = activeStaff.map(staff => {
+    const cols = days.map(day => {
+      const iso = toISO(day);
+      const isToday = iso === todayISO;
+
+      // Absences ce jour ?
+      const dayAbs = (absenceIdx[staff.id] || []).filter(a =>
+        a.start_date <= iso &&
+        (a.actual_end_date ? a.actual_end_date >= iso : a.expected_end_date >= iso)
+      );
+
+      // Gardes ce jour ?
+      const dayAss = (assIdx[staff.id] || []).filter(a => {
+        const sh = shiftById[a.shift];
+        return sh && sh.start_datetime && sh.start_datetime.slice(0,10) === iso;
+      });
+
+      let content = '';
+      dayAbs.forEach(a => {
+        content += `<div class="shift-cell absent" title="${a.absence_type_name || 'Absence'}">
+          <i class="bi bi-person-dash me-1"></i>${a.absence_type_name || 'Absent'}
+        </div>`;
+      });
+      dayAss.forEach(a => {
+        const sh = shiftById[a.shift];
+        if (!sh) return;
+        const start = new Date(sh.start_datetime);
+        const end   = new Date(sh.end_datetime);
+        const isNight = sh.is_night_shift;
+        content += `<div class="shift-cell ${isNight ? 'night' : ''}" title="${sh.shift_type_name || ''} — ${sh.care_unit_name || ''}">
+          <div>${sh.shift_type_name || 'Garde'}</div>
+          <div style="opacity:.75">${start.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}–${end.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>
+          <div style="opacity:.75;font-size:.72rem">${sh.care_unit_name || ''}</div>
+        </div>`;
+      });
+
+      return `<td class="${isToday ? 'today-col' : ''}">${content || '<span class="text-muted" style="font-size:.75rem;">—</span>'}</td>`;
+    }).join('');
+
+    return `<tr>
+      <td>
+        <div class="d-flex align-items-center gap-2">
+          <div style="width:28px;height:28px;border-radius:50%;background:#e8f4fd;display:flex;align-items:center;justify-content:center;font-weight:700;color:#2e86c1;font-size:.7rem;flex-shrink:0;">
+            ${staff.first_name[0]}${staff.last_name[0]}
+          </div>
+          ${staff.first_name} ${staff.last_name}
+        </div>
+      </td>
+      ${cols}
+    </tr>`;
+  }).join('') || '<tr><td colspan="8" class="text-center text-muted py-4">Aucun soignant actif</td></tr>';
+}
+
+function renderByService(days, todayISO) {
+  const tbody = document.getElementById('planning-tbody');
+  const filterSvcId = document.getElementById('filter-service').value;
+
+  const shiftById = {};
+  allShifts.forEach(s => { shiftById[s.id] = s; });
+
+  const staffById = {};
+  allStaff.forEach(s => { staffById[s.id] = s; });
+
+  const cuById = {};
+  allCareUnits.forEach(cu => { cuById[cu.id] = cu; });
+
+  // Grouper shifts par unité de soin, puis par jour
+  const shiftsByCU = {};
+  allShifts.forEach(sh => {
+    const cuId = sh.care_unit;
+    const cu = cuById[cuId];
+    if (!cu) return;
+    if (filterSvcId && String(cu.service) !== filterSvcId) return;
+    if (!shiftsByCU[cuId]) shiftsByCU[cuId] = {};
+    const iso = sh.start_datetime ? sh.start_datetime.slice(0,10) : null;
+    if (!iso) return;
+    if (!shiftsByCU[cuId][iso]) shiftsByCU[cuId][iso] = [];
+    shiftsByCU[cuId][iso].push(sh);
+  });
+
+  // Index assignments par shift
+  const assByShift = {};
+  allAssignments.forEach(a => {
+    if (!assByShift[a.shift]) assByShift[a.shift] = [];
+    assByShift[a.shift].push(a);
+  });
+
+  const cuIds = Object.keys(shiftsByCU);
+  document.getElementById('planning-info').textContent = `${cuIds.length} unité(s) avec des gardes`;
+
+  if (cuIds.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">Aucune garde dans cette période</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = cuIds.map(cuId => {
+    const cu = cuById[cuId] || {};
+    const svc = allServices.find(s => s.id == cu.service) || {};
+
+    const cols = days.map(day => {
+      const iso = toISO(day);
+      const isToday = iso === todayISO;
+      const dayShifts = shiftsByCU[cuId][iso] || [];
+
+      let content = '';
+      dayShifts.forEach(sh => {
+        const assigned = assByShift[sh.id] || [];
+        const start = new Date(sh.start_datetime);
+        const end   = new Date(sh.end_datetime);
+        const isFull  = assigned.length >= sh.max_staff;
+        const isEmpty = assigned.length < sh.min_staff;
+        const cls = isEmpty ? 'empty' : (sh.is_night_shift ? 'night' : '');
+        const staffNames = assigned.map(a => {
+          const s = staffById[a.staff];
+          return s ? `${s.first_name[0]}. ${s.last_name}` : '';
+        }).join(', ');
+
+        content += `<div class="shift-cell ${cls}" title="${staffNames || 'Non couvert'}">
+          <div><strong>${sh.shift_type_name || 'Garde'}</strong> ${start.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}–${end.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>
+          <div style="opacity:.8">${assigned.length}/${sh.max_staff} — ${staffNames || '<em>Non couvert</em>'}</div>
+        </div>`;
+      });
+
+      return `<td class="${isToday ? 'today-col' : ''}">${content || '<span class="text-muted" style="font-size:.75rem;">—</span>'}</td>`;
+    }).join('');
+
+    return `<tr>
+      <td>
+        <div class="fw-semibold">${cu.name || 'Unité'}</div>
+        <div class="text-muted" style="font-size:.75rem;">${svc.name || ''}</div>
+      </td>
+      ${cols}
+    </tr>`;
+  }).join('');
+}
+
+loadAll();
+</script>
+{% endblock %}

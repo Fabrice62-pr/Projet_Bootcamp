@@ -1,0 +1,176 @@
+{% extends "frontend/base.html" %}
+{% block title %}Types de contrat — HospiPlan{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="page-title">
+    <h1><i class="bi bi-file-earmark-text me-2"></i>Types de contrat</h1>
+    <p>Définir les modèles contractuels (CDI, CDD, Temps partiel…)</p>
+  </div>
+  <button class="btn btn-primary" onclick="openForm()">
+    <i class="bi bi-plus-lg me-1"></i>Nouveau type
+  </button>
+</div>
+
+<!-- Formulaire inline -->
+<div id="form-card" class="card mb-3 d-none">
+  <div class="card-header fw-semibold" id="form-title">Nouveau type de contrat</div>
+  <div class="card-body">
+    <div id="form-errors" class="alert alert-danger d-none mb-3"></div>
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Nom <span class="text-danger">*</span></label>
+        <input type="text" id="ct-name" class="form-control" placeholder="ex: CDI Temps plein, CDD…">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-semibold">Heures max / semaine <span class="text-danger">*</span></label>
+        <input type="number" id="ct-max-hours" class="form-control" min="1" max="60" value="35">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-semibold">Congés / an (jours) <span class="text-danger">*</span></label>
+        <input type="number" id="ct-leave-days" class="form-control" min="0" max="60" value="25">
+      </div>
+      <div class="col-md-4 d-flex align-items-end">
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="ct-night" checked>
+          <label class="form-check-label fw-semibold" for="ct-night">Gardes de nuit autorisées</label>
+        </div>
+      </div>
+    </div>
+    <div class="d-flex gap-2 justify-content-end mt-3">
+      <button class="btn btn-outline-secondary" onclick="closeForm()">
+        <i class="bi bi-x-lg me-1"></i>Annuler
+      </button>
+      <button class="btn btn-primary" onclick="saveContractType()">
+        <i class="bi bi-check-lg me-1"></i>Enregistrer
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Tableau -->
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Nom</th>
+            <th>Heures max / semaine</th>
+            <th>Congés / an</th>
+            <th>Gardes de nuit</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="ct-body">
+          <tr><td colspan="5" class="text-center text-muted py-4">
+            <div class="spinner-border spinner-border-sm me-2"></div>Chargement…
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let contractTypes = [];
+let editId = null;
+
+async function loadContractTypes() {
+  const res = await apiFetch('/api/contract-types/?format=json');
+  contractTypes = await res.json().then(d => d.results || d);
+  renderTable();
+}
+
+function renderTable() {
+  const tbody = document.getElementById('ct-body');
+  if (contractTypes.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">Aucun type de contrat. Créez-en un pour pouvoir affecter des soignants.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = contractTypes.map(ct => `
+    <tr>
+      <td><strong>${ct.name}</strong></td>
+      <td><span class="badge bg-primary-subtle text-primary">${ct.max_hours_per_week}h</span></td>
+      <td><span class="text-muted">${ct.leave_days_per_year} jours</span></td>
+      <td>
+        ${ct.night_shift_allowed
+          ? '<span class="badge badge-night"><i class="bi bi-moon-stars me-1"></i>Autorisées</span>'
+          : '<span class="badge badge-inactive"><i class="bi bi-x-circle me-1"></i>Non autorisées</span>'}
+      </td>
+      <td class="text-end">
+        <button class="btn btn-sm btn-outline-primary me-1" onclick="editContractType(${ct.id})">
+          <i class="bi bi-pencil"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteContractType(${ct.id}, '${ct.name.replace(/'/g,"\\'")}')">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
+    </tr>`).join('');
+}
+
+function openForm(ct = null) {
+  editId = ct ? ct.id : null;
+  document.getElementById('form-title').textContent = ct ? 'Modifier le type de contrat' : 'Nouveau type de contrat';
+  document.getElementById('ct-name').value      = ct ? ct.name : '';
+  document.getElementById('ct-max-hours').value = ct ? ct.max_hours_per_week : 35;
+  document.getElementById('ct-leave-days').value = ct ? ct.leave_days_per_year : 25;
+  document.getElementById('ct-night').checked   = ct ? ct.night_shift_allowed : true;
+  document.getElementById('form-errors').classList.add('d-none');
+  document.getElementById('form-card').classList.remove('d-none');
+  document.getElementById('ct-name').focus();
+}
+
+function closeForm() {
+  editId = null;
+  document.getElementById('form-card').classList.add('d-none');
+}
+
+function editContractType(id) {
+  const ct = contractTypes.find(c => c.id === id);
+  if (ct) openForm(ct);
+}
+
+async function saveContractType() {
+  const payload = {
+    name:                document.getElementById('ct-name').value.trim(),
+    max_hours_per_week:  parseInt(document.getElementById('ct-max-hours').value),
+    leave_days_per_year: parseInt(document.getElementById('ct-leave-days').value),
+    night_shift_allowed: document.getElementById('ct-night').checked,
+  };
+  if (!payload.name) { showToast('Le nom est requis.', 'warning'); return; }
+
+  const method = editId ? 'PUT' : 'POST';
+  const url    = editId ? `/api/contract-types/${editId}/` : '/api/contract-types/';
+  const res = await apiFetch(url, { method, body: JSON.stringify(payload) });
+
+  if (res.ok) {
+    showToast(editId ? 'Type mis à jour.' : 'Type créé.');
+    closeForm();
+    loadContractTypes();
+  } else {
+    const err = await res.json();
+    const box = document.getElementById('form-errors');
+    box.classList.remove('d-none');
+    box.innerHTML = Object.entries(err).map(([k,v]) =>
+      `<div><strong>${k} :</strong> ${Array.isArray(v) ? v.join(' ') : v}</div>`).join('');
+  }
+}
+
+async function deleteContractType(id, name) {
+  if (!confirmDelete(`Supprimer le type "${name}" ?`)) return;
+  const res = await apiFetch(`/api/contract-types/${id}/`, { method: 'DELETE' });
+  if (res.status === 204) {
+    showToast(`Type "${name}" supprimé.`);
+    contractTypes = contractTypes.filter(c => c.id !== id);
+    renderTable();
+  } else {
+    showToast('Impossible de supprimer (des contrats utilisent ce type).', 'danger');
+  }
+}
+
+loadContractTypes();
+</script>
+{% endblock %}

@@ -1,0 +1,202 @@
+{% extends "frontend/base.html" %}
+{% block title %}Tableau de bord — HospiPlan{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="page-title">
+    <h1><i class="bi bi-speedometer2 me-2"></i>Tableau de bord</h1>
+    <p id="today-date"></p>
+  </div>
+</div>
+
+<!-- Statistiques -->
+<div class="row g-3 mb-4" id="stats-row">
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="stat-icon" style="background:#e8f4fd;color:#2e86c1"><i class="bi bi-people-fill"></i></div>
+      <div>
+        <div class="stat-value" id="stat-staff">—</div>
+        <div class="stat-label">Soignants actifs</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="stat-icon" style="background:#e9f7ef;color:#1e8449"><i class="bi bi-calendar-check-fill"></i></div>
+      <div>
+        <div class="stat-value" id="stat-shifts">—</div>
+        <div class="stat-label">Gardes cette semaine</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="stat-icon" style="background:#fff3e0;color:#e65100"><i class="bi bi-person-check-fill"></i></div>
+      <div>
+        <div class="stat-value" id="stat-assignments">—</div>
+        <div class="stat-label">Affectations cette semaine</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="stat-icon" style="background:#fce4ec;color:#c62828"><i class="bi bi-exclamation-triangle-fill"></i></div>
+      <div>
+        <div class="stat-value" id="stat-absences">—</div>
+        <div class="stat-label">Absences en cours</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- Prochaines gardes -->
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-calendar3 me-2"></i>Prochaines gardes (7 jours)</span>
+        <a href="{% url 'frontend:shift_list' %}" class="btn btn-sm btn-outline-primary">Voir tout</a>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr>
+                <th>Date</th><th>Unité</th><th>Type</th><th>Créneau</th><th>Effectif</th>
+              </tr>
+            </thead>
+            <tbody id="upcoming-shifts">
+              <tr><td colspan="5" class="text-center text-muted py-3">Chargement…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Absences en cours -->
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-person-dash me-2"></i>Absences en cours</span>
+        <span class="badge bg-danger" id="absence-count">0</span>
+      </div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush" id="absence-list">
+          <li class="list-group-item text-muted text-center py-3">Chargement…</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const today = new Date();
+document.getElementById('today-date').textContent =
+  today.toLocaleDateString('fr-FR', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+
+// Calcul semaine courante
+function weekRange() {
+  const d = new Date();
+  const day = d.getDay() || 7;
+  const mon = new Date(d); mon.setDate(d.getDate() - day + 1);
+  const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+  return [mon.toISOString().slice(0,10), sun.toISOString().slice(0,10)];
+}
+
+async function loadDashboard() {
+  // Soignants actifs
+  const staffRes = await apiFetch('/api/staff/?format=json');
+  const staff = await staffRes.json();
+  const active = (staff.results || staff).filter(s => s.is_active);
+  document.getElementById('stat-staff').textContent = active.length;
+
+  // Absences en cours
+  const today = new Date().toISOString().slice(0,10);
+  const absRes = await apiFetch('/api/absences/?format=json');
+  const absences = await absRes.json();
+  const allAbs = absences.results || absences;
+  const ongoing = allAbs.filter(a =>
+    a.start_date <= today &&
+    (a.actual_end_date ? a.actual_end_date >= today : a.expected_end_date >= today)
+  );
+  document.getElementById('stat-absences').textContent = ongoing.length;
+  document.getElementById('absence-count').textContent = ongoing.length;
+
+  // Soignants par id pour affichage
+  const staffById = {};
+  (staff.results || staff).forEach(s => { staffById[s.id] = s; });
+
+  // Absence list
+  const absList = document.getElementById('absence-list');
+  if (ongoing.length === 0) {
+    absList.innerHTML = '<li class="list-group-item text-muted text-center py-3">Aucune absence en cours</li>';
+  } else {
+    absList.innerHTML = ongoing.map(a => {
+      const s = staffById[a.staff] || {};
+      return `<li class="list-group-item d-flex justify-content-between align-items-center">
+        <div>
+          <div class="fw-semibold">${s.first_name || ''} ${s.last_name || ''}</div>
+          <small class="text-muted">${a.absence_type_name || ''} — jusqu'au ${a.expected_end_date}</small>
+        </div>
+        <span class="badge bg-danger-subtle text-danger">Absent</span>
+      </li>`;
+    }).join('');
+  }
+
+  // Gardes cette semaine
+  const [wStart, wEnd] = weekRange();
+  const shiftRes = await apiFetch('/api/shifts/?format=json');
+  const shifts = shiftRes.ok ? (await shiftRes.json()) : {results:[]};
+  const allShifts = shifts.results || shifts;
+  const weekShifts = allShifts.filter(sh =>
+    sh.start_datetime && sh.start_datetime.slice(0,10) >= wStart && sh.start_datetime.slice(0,10) <= wEnd
+  );
+  document.getElementById('stat-shifts').textContent = weekShifts.length;
+
+  // Affectations cette semaine
+  const assRes = await apiFetch('/api/assignments/?format=json');
+  const assignments = assRes.ok ? (await assRes.json()) : {results:[]};
+  const allAss = assignments.results || assignments;
+  document.getElementById('stat-assignments').textContent = allAss.length;
+
+  // Prochaines gardes
+  const upcoming = [...allShifts]
+    .filter(sh => sh.start_datetime && sh.start_datetime.slice(0,10) >= new Date().toISOString().slice(0,10))
+    .sort((a,b) => a.start_datetime.localeCompare(b.start_datetime))
+    .slice(0, 8);
+
+  const shiftAssCount = {};
+  allAss.forEach(a => { shiftAssCount[a.shift] = (shiftAssCount[a.shift] || 0) + 1; });
+
+  const tbody = document.getElementById('upcoming-shifts');
+  if (upcoming.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Aucune garde à venir</td></tr>';
+  } else {
+    tbody.innerHTML = upcoming.map(sh => {
+      const d = new Date(sh.start_datetime);
+      const dEnd = new Date(sh.end_datetime);
+      const count = shiftAssCount[sh.id] || 0;
+      const isFull = count >= sh.max_staff;
+      const isEmpty = count < sh.min_staff;
+      const badge = isFull
+        ? '<span class="badge bg-success-subtle text-success">Complet</span>'
+        : isEmpty
+          ? '<span class="badge bg-danger-subtle text-danger">Incomplet</span>'
+          : '<span class="badge bg-warning-subtle text-warning">Partiel</span>';
+      return `<tr>
+        <td>${d.toLocaleDateString('fr-FR',{weekday:'short',day:'2-digit',month:'short'})}</td>
+        <td>${sh.care_unit_name || sh.care_unit}</td>
+        <td>${sh.shift_type_name || sh.shift_type}</td>
+        <td class="text-muted">${d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}–${dEnd.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</td>
+        <td>${count}/${sh.max_staff} ${badge}</td>
+      </tr>`;
+    }).join('');
+  }
+}
+
+loadDashboard();
+</script>
+{% endblock %}

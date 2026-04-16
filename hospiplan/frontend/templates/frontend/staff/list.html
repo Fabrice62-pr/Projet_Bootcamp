@@ -1,0 +1,146 @@
+{% extends "frontend/base.html" %}
+{% block title %}Soignants — HospiPlan{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="page-title">
+    <h1><i class="bi bi-people me-2"></i>Soignants</h1>
+    <p>Gestion du personnel soignant</p>
+  </div>
+  <a href="{% url 'frontend:staff_add' %}" class="btn btn-primary">
+    <i class="bi bi-plus-lg me-1"></i>Nouveau soignant
+  </a>
+</div>
+
+<!-- Filtres -->
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-center">
+      <div class="col-md-4">
+        <div class="input-group input-group-sm">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="text" id="search-input" class="form-control" placeholder="Rechercher un soignant…">
+        </div>
+      </div>
+      <div class="col-auto">
+        <select id="filter-active" class="form-select form-select-sm">
+          <option value="">Tous les statuts</option>
+          <option value="true">Actifs</option>
+          <option value="false">Inactifs</option>
+        </select>
+      </div>
+      <div class="col-auto ms-auto text-muted small">
+        <span id="count-label">Chargement…</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tableau -->
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="staff-table">
+        <thead>
+          <tr>
+            <th>Nom</th>
+            <th>Email</th>
+            <th>Téléphone</th>
+            <th>Statut</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="staff-body">
+          <tr><td colspan="5" class="text-center text-muted py-4">
+            <div class="spinner-border spinner-border-sm me-2"></div>Chargement…
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let allStaff = [];
+
+async function loadStaff() {
+  const res = await apiFetch('/api/staff/?format=json');
+  const data = await res.json();
+  allStaff = data.results || data;
+  renderTable();
+}
+
+function renderTable() {
+  const search = document.getElementById('search-input').value.toLowerCase();
+  const filterActive = document.getElementById('filter-active').value;
+
+  let filtered = allStaff.filter(s => {
+    const matchSearch = !search ||
+      (s.first_name + ' ' + s.last_name).toLowerCase().includes(search) ||
+      s.email.toLowerCase().includes(search);
+    const matchActive = !filterActive || String(s.is_active) === filterActive;
+    return matchSearch && matchActive;
+  });
+
+  document.getElementById('count-label').textContent = `${filtered.length} soignant(s)`;
+
+  const tbody = document.getElementById('staff-body');
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">Aucun résultat</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(s => `
+    <tr>
+      <td>
+        <div class="d-flex align-items-center gap-2">
+          <div style="width:34px;height:34px;border-radius:50%;background:#e8f4fd;display:flex;align-items:center;justify-content:center;font-weight:700;color:#2e86c1;font-size:.8rem;">
+            ${s.first_name[0]}${s.last_name[0]}
+          </div>
+          <div>
+            <div class="fw-semibold">${s.first_name} ${s.last_name}</div>
+          </div>
+        </div>
+      </td>
+      <td class="text-muted">${s.email}</td>
+      <td class="text-muted">${s.phone || '—'}</td>
+      <td>
+        ${s.is_active
+          ? '<span class="badge badge-active"><i class="bi bi-check-circle me-1"></i>Actif</span>'
+          : '<span class="badge badge-inactive"><i class="bi bi-x-circle me-1"></i>Inactif</span>'}
+      </td>
+      <td class="text-end">
+        <a href="/staff/${s.id}/edit/" class="btn btn-sm btn-outline-primary me-1" title="Modifier">
+          <i class="bi bi-pencil"></i>
+        </a>
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteStaff(${s.id}, '${s.first_name} ${s.last_name}')" title="Supprimer">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function deleteStaff(id, name) {
+  if (!confirmDelete(`Supprimer ${name} ?`)) return;
+  loading(true);
+  const res = await apiFetch(`/api/staff/${id}/`, { method: 'DELETE' });
+  loading(false);
+  if (res.status === 204) {
+    showToast(`${name} supprimé(e).`);
+    allStaff = allStaff.filter(s => s.id !== id);
+    renderTable();
+  } else {
+    const err = await res.json().catch(() => ({}));
+    showToast(err.detail || 'Erreur lors de la suppression.', 'danger');
+  }
+}
+
+document.getElementById('search-input').addEventListener('input', renderTable);
+document.getElementById('filter-active').addEventListener('change', renderTable);
+
+loadStaff();
+</script>
+{% endblock %}

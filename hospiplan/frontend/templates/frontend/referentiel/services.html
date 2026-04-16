@@ -1,0 +1,302 @@
+{% extends "frontend/base.html" %}
+{% block title %}Services & Unités de soin — HospiPlan{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="page-title">
+    <h1><i class="bi bi-hospital me-2"></i>Services & Unités de soin</h1>
+    <p>Référentiel des services hospitaliers et de leurs unités</p>
+  </div>
+</div>
+
+<div class="row g-3">
+
+  <!-- ══ COLONNE GAUCHE : Services ══════════════════════════════════════ -->
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-building me-2"></i>Services</span>
+        <button class="btn btn-sm btn-primary" onclick="openServiceForm()">
+          <i class="bi bi-plus-lg me-1"></i>Nouveau
+        </button>
+      </div>
+
+      <!-- Formulaire service (inline) -->
+      <div id="service-form-wrap" class="card-body border-bottom bg-light d-none">
+        <div class="fw-semibold mb-2" id="service-form-title">Nouveau service</div>
+        <div id="service-errors" class="alert alert-danger d-none py-2 mb-2"></div>
+        <div class="row g-2">
+          <div class="col-12">
+            <input type="text" id="svc-name" class="form-control form-control-sm" placeholder="Nom du service *">
+          </div>
+          <div class="col-6">
+            <input type="number" id="svc-beds" class="form-control form-control-sm" placeholder="Nb lits *" min="1" value="20">
+          </div>
+          <div class="col-6">
+            <select id="svc-criticality" class="form-select form-select-sm">
+              <option value="1">Criticité 1 — Faible</option>
+              <option value="2">Criticité 2 — Modérée</option>
+              <option value="3" selected>Criticité 3 — Haute</option>
+              <option value="4">Criticité 4 — Critique</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <input type="number" id="svc-threshold" class="form-control form-control-sm" placeholder="Seuil min soignants" min="1" value="1">
+          </div>
+          <div class="col-12 d-flex gap-2 justify-content-end">
+            <button class="btn btn-sm btn-outline-secondary" onclick="closeServiceForm()">Annuler</button>
+            <button class="btn btn-sm btn-primary" onclick="saveService()">
+              <i class="bi bi-check-lg me-1"></i>Enregistrer
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Liste -->
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush" id="service-list">
+          <li class="list-group-item text-muted text-center py-3">Chargement…</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ COLONNE DROITE : Unités de soin ════════════════════════════════ -->
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>
+          <i class="bi bi-grid me-2"></i>Unités de soin
+          <span class="text-muted fw-normal small ms-1" id="cu-service-name"></span>
+        </span>
+        <button class="btn btn-sm btn-primary" id="btn-add-cu" onclick="openCUForm()" disabled>
+          <i class="bi bi-plus-lg me-1"></i>Nouvelle unité
+        </button>
+      </div>
+
+      <!-- Formulaire unité (inline) -->
+      <div id="cu-form-wrap" class="card-body border-bottom bg-light d-none">
+        <div class="fw-semibold mb-2" id="cu-form-title">Nouvelle unité de soin</div>
+        <div id="cu-errors" class="alert alert-danger d-none py-2 mb-2"></div>
+        <div class="row g-2">
+          <div class="col-12">
+            <input type="text" id="cu-name" class="form-control form-control-sm" placeholder="Nom de l'unité *">
+          </div>
+          <div class="col-12 d-flex gap-2 justify-content-end">
+            <button class="btn btn-sm btn-outline-secondary" onclick="closeCUForm()">Annuler</button>
+            <button class="btn btn-sm btn-primary" onclick="saveCareUnit()">
+              <i class="bi bi-check-lg me-1"></i>Enregistrer
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hint sélection service -->
+      <div id="cu-hint" class="card-body text-muted text-center py-4">
+        <i class="bi bi-arrow-left me-1"></i>Sélectionnez un service pour gérer ses unités
+      </div>
+
+      <!-- Liste unités -->
+      <div class="card-body p-0 d-none" id="cu-list-wrap">
+        <ul class="list-group list-group-flush" id="cu-list"></ul>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let services = [];
+let careUnits = [];
+let selectedSvcId = null;
+let editSvcId = null;
+let editCUId  = null;
+
+// ── Services ───────────────────────────────────────────────────────────
+
+async function loadServices() {
+  const res = await apiFetch('/api/services/?format=json');
+  services = await res.json().then(d => d.results || d);
+  renderServices();
+}
+
+function renderServices() {
+  const list = document.getElementById('service-list');
+  if (services.length === 0) {
+    list.innerHTML = '<li class="list-group-item text-muted text-center py-3">Aucun service. Créez-en un.</li>';
+    return;
+  }
+  list.innerHTML = services.map(s => `
+    <li class="list-group-item list-group-item-action d-flex justify-content-between align-items-center
+               ${selectedSvcId == s.id ? 'active' : ''}"
+        onclick="selectService(${s.id})" style="cursor:pointer;">
+      <div>
+        <div class="fw-semibold">${s.name}</div>
+        <div class="small opacity-75">${s.bed_capacity} lits · Criticité ${s.criticality_level} · Seuil ${s.min_staff_threshold}</div>
+      </div>
+      <div class="d-flex gap-1" onclick="event.stopPropagation()">
+        <button class="btn btn-sm btn-outline-light" onclick="editService(${s.id})"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteService(${s.id}, '${s.name}')"><i class="bi bi-trash"></i></button>
+      </div>
+    </li>`).join('');
+}
+
+function openServiceForm(svc = null) {
+  editSvcId = svc ? svc.id : null;
+  document.getElementById('service-form-title').textContent = svc ? 'Modifier le service' : 'Nouveau service';
+  document.getElementById('svc-name').value         = svc ? svc.name : '';
+  document.getElementById('svc-beds').value         = svc ? svc.bed_capacity : 20;
+  document.getElementById('svc-criticality').value  = svc ? svc.criticality_level : 3;
+  document.getElementById('svc-threshold').value    = svc ? svc.min_staff_threshold : 1;
+  document.getElementById('service-errors').classList.add('d-none');
+  document.getElementById('service-form-wrap').classList.remove('d-none');
+  document.getElementById('svc-name').focus();
+}
+
+function closeServiceForm() {
+  editSvcId = null;
+  document.getElementById('service-form-wrap').classList.add('d-none');
+}
+
+function editService(id) {
+  const svc = services.find(s => s.id === id);
+  if (svc) openServiceForm(svc);
+}
+
+async function saveService() {
+  const payload = {
+    name:               document.getElementById('svc-name').value.trim(),
+    bed_capacity:       parseInt(document.getElementById('svc-beds').value),
+    criticality_level:  parseInt(document.getElementById('svc-criticality').value),
+    min_staff_threshold: parseInt(document.getElementById('svc-threshold').value),
+  };
+  if (!payload.name) { showToast('Le nom est requis.', 'warning'); return; }
+
+  const method = editSvcId ? 'PUT' : 'POST';
+  const url    = editSvcId ? `/api/services/${editSvcId}/` : '/api/services/';
+  const res = await apiFetch(url, { method, body: JSON.stringify(payload) });
+
+  if (res.ok) {
+    showToast(editSvcId ? 'Service mis à jour.' : 'Service créé.');
+    closeServiceForm();
+    await loadServices();
+  } else {
+    const err = await res.json();
+    const box = document.getElementById('service-errors');
+    box.classList.remove('d-none');
+    box.textContent = JSON.stringify(err);
+  }
+}
+
+async function deleteService(id, name) {
+  if (!confirmDelete(`Supprimer "${name}" et toutes ses unités ?`)) return;
+  const res = await apiFetch(`/api/services/${id}/`, { method: 'DELETE' });
+  if (res.status === 204) {
+    showToast(`Service "${name}" supprimé.`);
+    if (selectedSvcId === id) { selectedSvcId = null; hideCUPanel(); }
+    await loadServices();
+  } else {
+    showToast('Erreur lors de la suppression.', 'danger');
+  }
+}
+
+function selectService(id) {
+  selectedSvcId = id;
+  renderServices();
+  loadCareUnits(id);
+}
+
+// ── Unités de soin ─────────────────────────────────────────────────────
+
+async function loadCareUnits(serviceId) {
+  const res = await apiFetch('/api/care-units/?format=json');
+  const all = await res.json().then(d => d.results || d);
+  careUnits = all.filter(cu => cu.service == serviceId);
+
+  const svc = services.find(s => s.id === serviceId);
+  document.getElementById('cu-service-name').textContent = svc ? `— ${svc.name}` : '';
+  document.getElementById('btn-add-cu').disabled = false;
+  document.getElementById('cu-hint').classList.add('d-none');
+  document.getElementById('cu-list-wrap').classList.remove('d-none');
+  renderCareUnits();
+}
+
+function renderCareUnits() {
+  const list = document.getElementById('cu-list');
+  if (careUnits.length === 0) {
+    list.innerHTML = '<li class="list-group-item text-muted text-center py-3">Aucune unité. Créez-en une.</li>';
+    return;
+  }
+  list.innerHTML = careUnits.map(cu => `
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <span><i class="bi bi-grid-1x2 me-2 text-primary"></i>${cu.name}</span>
+      <div class="d-flex gap-1">
+        <button class="btn btn-sm btn-outline-primary" onclick="editCareUnit(${cu.id})"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteCareUnit(${cu.id}, '${cu.name}')"><i class="bi bi-trash"></i></button>
+      </div>
+    </li>`).join('');
+}
+
+function openCUForm(cu = null) {
+  editCUId = cu ? cu.id : null;
+  document.getElementById('cu-form-title').textContent = cu ? 'Modifier l\'unité' : 'Nouvelle unité de soin';
+  document.getElementById('cu-name').value = cu ? cu.name : '';
+  document.getElementById('cu-errors').classList.add('d-none');
+  document.getElementById('cu-form-wrap').classList.remove('d-none');
+  document.getElementById('cu-name').focus();
+}
+
+function closeCUForm() {
+  editCUId = null;
+  document.getElementById('cu-form-wrap').classList.add('d-none');
+}
+
+function editCareUnit(id) {
+  const cu = careUnits.find(c => c.id === id);
+  if (cu) openCUForm(cu);
+}
+
+async function saveCareUnit() {
+  const name = document.getElementById('cu-name').value.trim();
+  if (!name) { showToast('Le nom est requis.', 'warning'); return; }
+
+  const payload = { name, service: selectedSvcId };
+  const method = editCUId ? 'PUT' : 'POST';
+  const url    = editCUId ? `/api/care-units/${editCUId}/` : '/api/care-units/';
+  const res = await apiFetch(url, { method, body: JSON.stringify(payload) });
+
+  if (res.ok) {
+    showToast(editCUId ? 'Unité mise à jour.' : 'Unité créée.');
+    closeCUForm();
+    loadCareUnits(selectedSvcId);
+  } else {
+    const err = await res.json();
+    const box = document.getElementById('cu-errors');
+    box.classList.remove('d-none');
+    box.textContent = JSON.stringify(err);
+  }
+}
+
+async function deleteCareUnit(id, name) {
+  if (!confirmDelete(`Supprimer l'unité "${name}" ?`)) return;
+  const res = await apiFetch(`/api/care-units/${id}/`, { method: 'DELETE' });
+  if (res.status === 204) {
+    showToast(`Unité "${name}" supprimée.`);
+    loadCareUnits(selectedSvcId);
+  } else {
+    showToast('Erreur lors de la suppression.', 'danger');
+  }
+}
+
+function hideCUPanel() {
+  document.getElementById('cu-hint').classList.remove('d-none');
+  document.getElementById('cu-list-wrap').classList.add('d-none');
+  document.getElementById('btn-add-cu').disabled = true;
+  document.getElementById('cu-service-name').textContent = '';
+}
+
+loadServices();
+</script>
+{% endblock %}

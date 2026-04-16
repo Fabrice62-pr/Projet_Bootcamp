@@ -1,0 +1,380 @@
+{% extends "frontend/base.html" %}
+{% block title %}{% if staff_id %}Modifier{% else %}Nouveau{% endif %} soignant — HospiPlan{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="page-title">
+    <h1>
+      <i class="bi bi-person-{% if staff_id %}gear{% else %}plus{% endif %} me-2"></i>
+      {% if staff_id %}Modifier le soignant{% else %}Nouveau soignant{% endif %}
+    </h1>
+    <p><a href="{% url 'frontend:staff_list' %}" class="text-decoration-none text-muted">
+      <i class="bi bi-arrow-left me-1"></i>Retour à la liste
+    </a></p>
+  </div>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-lg-{% if staff_id %}10{% else %}7{% endif %}">
+    <div class="row g-3">
+
+      <!-- Colonne principale : infos perso -->
+      <div class="{% if staff_id %}col-lg-5{% else %}col-12{% endif %}">
+
+        <!-- Erreurs globales -->
+        <div id="form-errors" class="alert alert-danger d-none mb-3"></div>
+
+        <div class="card">
+          <div class="card-header"><i class="bi bi-person me-2"></i>Informations personnelles</div>
+          <div class="card-body">
+            <form id="staff-form">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label fw-semibold">Prénom <span class="text-danger">*</span></label>
+                  <input type="text" id="first_name" class="form-control" required>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label fw-semibold">Nom <span class="text-danger">*</span></label>
+                  <input type="text" id="last_name" class="form-control" required>
+                </div>
+                <div class="col-md-8">
+                  <label class="form-label fw-semibold">Email <span class="text-danger">*</span></label>
+                  <input type="email" id="email" class="form-control" required>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fw-semibold">Téléphone</label>
+                  <input type="text" id="phone" class="form-control" placeholder="06…">
+                </div>
+                <div class="col-12">
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="is_active" checked>
+                    <label class="form-check-label fw-semibold" for="is_active">Soignant actif</label>
+                  </div>
+                </div>
+              </div>
+
+              <hr class="my-4">
+
+              <div class="d-flex gap-2 justify-content-end">
+                <a href="{% url 'frontend:staff_list' %}" class="btn btn-outline-secondary">
+                  <i class="bi bi-x-lg me-1"></i>Annuler
+                </a>
+                <button type="submit" class="btn btn-primary" id="submit-btn">
+                  <i class="bi bi-check-lg me-1"></i>
+                  {% if staff_id %}Enregistrer les modifications{% else %}Créer le soignant{% endif %}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      {% if staff_id %}
+      <!-- Colonne contrats (mode édition uniquement) -->
+      <div class="col-lg-7">
+
+        <!-- Carte liste des contrats -->
+        <div class="card mb-3">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-file-earmark-text me-2"></i>Contrats</span>
+            <button class="btn btn-sm btn-primary" onclick="openContractForm()">
+              <i class="bi bi-plus-lg me-1"></i>Nouveau contrat
+            </button>
+          </div>
+          <div class="card-body p-0">
+            <ul class="list-group list-group-flush" id="contract-list">
+              <li class="list-group-item text-center text-muted py-3">
+                <div class="spinner-border spinner-border-sm me-2"></div>Chargement…
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Formulaire d'ajout/édition de contrat -->
+        <div class="card d-none" id="contract-form-card">
+          <div class="card-header fw-semibold" id="contract-form-title">
+            <i class="bi bi-pencil-square me-2"></i>Nouveau contrat
+          </div>
+          <div class="card-body">
+            <div id="contract-form-errors" class="alert alert-danger d-none mb-3"></div>
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label fw-semibold">Type de contrat <span class="text-danger">*</span></label>
+                <select id="c-type" class="form-select">
+                  <option value="">— Choisir un type —</option>
+                </select>
+                <div class="mt-1" id="c-type-info" style="font-size:.8rem;"></div>
+              </div>
+              <div class="col-md-5">
+                <label class="form-label fw-semibold">Date de début <span class="text-danger">*</span></label>
+                <input type="date" id="c-start" class="form-control">
+              </div>
+              <div class="col-md-5">
+                <label class="form-label fw-semibold">Date de fin</label>
+                <input type="date" id="c-end" class="form-control">
+                <div class="form-text">Laisser vide pour un CDI (durée indéterminée).</div>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label fw-semibold">Quotité (%)</label>
+                <input type="number" id="c-workload" class="form-control" min="1" max="100" value="100">
+              </div>
+            </div>
+            <div class="d-flex gap-2 justify-content-end mt-3">
+              <button class="btn btn-outline-secondary" onclick="closeContractForm()">
+                <i class="bi bi-x-lg me-1"></i>Annuler
+              </button>
+              <button class="btn btn-primary" onclick="saveContract()">
+                <i class="bi bi-check-lg me-1"></i>Enregistrer le contrat
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const STAFF_ID = {{ staff_id|default:"null" }};
+const TODAY = new Date().toISOString().slice(0, 10);
+
+// ── Infos soignant ────────────────────────────────────────────────────────────
+async function loadStaff() {
+  if (!STAFF_ID) return;
+  const res = await apiFetch(`/api/staff/${STAFF_ID}/?format=json`);
+  if (!res.ok) { showToast('Soignant introuvable.', 'danger'); return; }
+  const s = await res.json();
+  document.getElementById('first_name').value = s.first_name;
+  document.getElementById('last_name').value  = s.last_name;
+  document.getElementById('email').value       = s.email;
+  document.getElementById('phone').value       = s.phone || '';
+  document.getElementById('is_active').checked = s.is_active;
+}
+
+document.getElementById('staff-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  document.getElementById('form-errors').classList.add('d-none');
+
+  const payload = {
+    first_name: document.getElementById('first_name').value.trim(),
+    last_name:  document.getElementById('last_name').value.trim(),
+    email:      document.getElementById('email').value.trim(),
+    phone:      document.getElementById('phone').value.trim(),
+    is_active:  document.getElementById('is_active').checked,
+  };
+
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Enregistrement…';
+
+  const method = STAFF_ID ? 'PUT' : 'POST';
+  const url    = STAFF_ID ? `/api/staff/${STAFF_ID}/` : '/api/staff/';
+  const res = await apiFetch(url, { method, body: JSON.stringify(payload) });
+
+  btn.disabled = false;
+  btn.innerHTML = STAFF_ID
+    ? '<i class="bi bi-check-lg me-1"></i>Enregistrer les modifications'
+    : '<i class="bi bi-check-lg me-1"></i>Créer le soignant';
+
+  if (res.ok) {
+    showToast(STAFF_ID ? 'Soignant mis à jour.' : 'Soignant créé avec succès.');
+    setTimeout(() => window.location.href = "{% url 'frontend:staff_list' %}", 800);
+  } else {
+    const err = await res.json();
+    const box = document.getElementById('form-errors');
+    box.classList.remove('d-none');
+    box.innerHTML = Object.entries(err).map(([k,v]) =>
+      `<div><strong>${k} :</strong> ${Array.isArray(v) ? v.join(' ') : v}</div>`
+    ).join('');
+  }
+});
+
+// ── Contrats (mode édition uniquement) ────────────────────────────────────────
+{% if staff_id %}
+let contracts = [];
+let contractTypes = [];
+let editContractId = null;
+
+function contractStatus(c) {
+  const start = c.start_date;
+  const end   = c.end_date;
+  if (start > TODAY) return { label: 'À venir', cls: 'bg-info-subtle text-info', icon: 'bi-clock' };
+  if (end && end < TODAY) return { label: 'Expiré', cls: 'badge-inactive', icon: 'bi-x-circle' };
+  return { label: 'Actif', cls: 'badge-active', icon: 'bi-check-circle-fill' };
+}
+
+function fmtDate(d) {
+  if (!d) return '∞';
+  const [y, m, day] = d.split('-');
+  return `${day}/${m}/${y}`;
+}
+
+async function loadContracts() {
+  const res = await apiFetch(`/api/contracts/?format=json`);
+  const all = await res.json().then(d => d.results || d);
+  contracts = all.filter(c => c.staff === STAFF_ID);
+  renderContracts();
+}
+
+function renderContracts() {
+  const list = document.getElementById('contract-list');
+  if (contracts.length === 0) {
+    list.innerHTML = `
+      <li class="list-group-item text-center py-4">
+        <i class="bi bi-file-earmark-x text-muted" style="font-size:2rem;"></i>
+        <div class="text-muted mt-2">Aucun contrat enregistré.</div>
+        <div class="text-muted small">Sans contrat actif, les affectations seront bloquées.</div>
+      </li>`;
+    return;
+  }
+
+  // Trier : actifs en premier, puis à venir, puis expirés
+  const order = { 'Actif': 0, 'À venir': 1, 'Expiré': 2 };
+  const sorted = [...contracts].sort((a, b) => {
+    const sa = contractStatus(a).label;
+    const sb = contractStatus(b).label;
+    return (order[sa] ?? 9) - (order[sb] ?? 9);
+  });
+
+  list.innerHTML = sorted.map(c => {
+    const st = contractStatus(c);
+    const typeName = c.contract_type_name || `Type #${c.contract_type}`;
+    const nightBadge = c.night_shift_allowed
+      ? '<span class="badge badge-night ms-1"><i class="bi bi-moon-stars me-1"></i>Nuit ✓</span>'
+      : '<span class="badge badge-inactive ms-1"><i class="bi bi-moon me-1"></i>Nuit ✗</span>';
+    return `
+      <li class="list-group-item">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <span class="badge ${st.cls}"><i class="bi ${st.icon} me-1"></i>${st.label}</span>
+              <strong>${typeName}</strong>
+              ${nightBadge}
+            </div>
+            <div style="font-size:.82rem;" class="text-muted">
+              <i class="bi bi-calendar3 me-1"></i>${fmtDate(c.start_date)} → ${fmtDate(c.end_date)}
+              &nbsp;·&nbsp;
+              <i class="bi bi-clock me-1"></i>${c.max_hours_per_week || '?'}h/sem
+              &nbsp;·&nbsp;
+              <i class="bi bi-percent me-1"></i>${c.workload_percent}%
+            </div>
+          </div>
+          <div class="d-flex gap-1">
+            <button class="btn btn-sm btn-outline-primary" onclick="editContract(${c.id})" title="Modifier">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteContract(${c.id})" title="Supprimer">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+        </div>
+      </li>`;
+  }).join('');
+}
+
+async function loadContractTypes() {
+  const res = await apiFetch('/api/contract-types/?format=json');
+  contractTypes = await res.json().then(d => d.results || d);
+  const sel = document.getElementById('c-type');
+  contractTypes.forEach(ct => {
+    sel.insertAdjacentHTML('beforeend',
+      `<option value="${ct.id}">${ct.name} — ${ct.max_hours_per_week}h/sem${ct.night_shift_allowed ? ' · Nuit ✓' : ''}</option>`);
+  });
+}
+
+document.getElementById('c-type').addEventListener('change', function() {
+  const ct = contractTypes.find(c => c.id === parseInt(this.value));
+  const info = document.getElementById('c-type-info');
+  if (ct) {
+    info.innerHTML = `
+      <span class="badge bg-primary-subtle text-primary me-1">${ct.max_hours_per_week}h/sem max</span>
+      <span class="badge bg-secondary-subtle text-secondary me-1">${ct.leave_days_per_year}j congés/an</span>
+      ${ct.night_shift_allowed
+        ? '<span class="badge badge-night">Gardes de nuit autorisées</span>'
+        : '<span class="badge badge-inactive">Gardes de nuit non autorisées</span>'}`;
+  } else {
+    info.innerHTML = '';
+  }
+});
+
+function openContractForm(c = null) {
+  editContractId = c ? c.id : null;
+  document.getElementById('contract-form-title').innerHTML =
+    `<i class="bi bi-pencil-square me-2"></i>${c ? 'Modifier le contrat' : 'Nouveau contrat'}`;
+  document.getElementById('c-type').value    = c ? c.contract_type : '';
+  document.getElementById('c-start').value   = c ? c.start_date : TODAY;
+  document.getElementById('c-end').value     = c ? (c.end_date || '') : '';
+  document.getElementById('c-workload').value = c ? c.workload_percent : 100;
+  document.getElementById('c-type').dispatchEvent(new Event('change'));
+  document.getElementById('contract-form-errors').classList.add('d-none');
+  document.getElementById('contract-form-card').classList.remove('d-none');
+  document.getElementById('c-type').focus();
+}
+
+function closeContractForm() {
+  editContractId = null;
+  document.getElementById('contract-form-card').classList.add('d-none');
+}
+
+function editContract(id) {
+  const c = contracts.find(x => x.id === id);
+  if (c) openContractForm(c);
+}
+
+async function saveContract() {
+  const typeId = parseInt(document.getElementById('c-type').value);
+  const start  = document.getElementById('c-start').value;
+  if (!typeId || !start) {
+    showToast('Le type de contrat et la date de début sont requis.', 'warning');
+    return;
+  }
+
+  const payload = {
+    staff:            STAFF_ID,
+    contract_type:    typeId,
+    start_date:       start,
+    end_date:         document.getElementById('c-end').value || null,
+    workload_percent: parseInt(document.getElementById('c-workload').value) || 100,
+  };
+
+  const method = editContractId ? 'PUT' : 'POST';
+  const url    = editContractId ? `/api/contracts/${editContractId}/` : '/api/contracts/';
+  const res = await apiFetch(url, { method, body: JSON.stringify(payload) });
+
+  if (res.ok) {
+    showToast(editContractId ? 'Contrat mis à jour.' : 'Contrat créé avec succès.');
+    closeContractForm();
+    loadContracts();
+  } else {
+    const err = await res.json();
+    const box = document.getElementById('contract-form-errors');
+    box.classList.remove('d-none');
+    box.innerHTML = Object.entries(err).map(([k,v]) =>
+      `<div><strong>${k} :</strong> ${Array.isArray(v) ? v.join(' ') : v}</div>`).join('');
+  }
+}
+
+async function deleteContract(id) {
+  if (!confirmDelete('Supprimer ce contrat ?')) return;
+  const res = await apiFetch(`/api/contracts/${id}/`, { method: 'DELETE' });
+  if (res.status === 204) {
+    showToast('Contrat supprimé.');
+    contracts = contracts.filter(c => c.id !== id);
+    renderContracts();
+  } else {
+    showToast('Erreur lors de la suppression.', 'danger');
+  }
+}
+
+// Init
+Promise.all([loadContracts(), loadContractTypes()]);
+{% endif %}
+
+loadStaff();
+</script>
+{% endblock %}

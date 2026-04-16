@@ -1,0 +1,179 @@
+{% extends "frontend/base.html" %}
+{% block title %}{% if shift_id %}Modifier{% else %}Nouveau{% endif %} poste — HospiPlan{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="page-title">
+    <h1>
+      <i class="bi bi-calendar-{% if shift_id %}check{% else %}plus{% endif %} me-2"></i>
+      {% if shift_id %}Modifier le poste{% else %}Nouveau poste{% endif %}
+    </h1>
+    <p><a href="{% url 'frontend:shift_list' %}" class="text-decoration-none text-muted">
+      <i class="bi bi-arrow-left me-1"></i>Retour à la liste
+    </a></p>
+  </div>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div id="form-errors" class="alert alert-danger d-none mb-3"></div>
+
+    <div class="card">
+      <div class="card-header"><i class="bi bi-calendar3 me-2"></i>Détails du poste</div>
+      <div class="card-body">
+        <form id="shift-form">
+          <div class="row g-3">
+
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Unité de soin <span class="text-danger">*</span></label>
+              <select id="care_unit" class="form-select" required>
+                <option value="">— Choisir —</option>
+              </select>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Type de garde <span class="text-danger">*</span></label>
+              <select id="shift_type" class="form-select" required>
+                <option value="">— Choisir —</option>
+              </select>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Début <span class="text-danger">*</span></label>
+              <input type="datetime-local" id="start_datetime" class="form-control" required>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Fin <span class="text-danger">*</span></label>
+              <input type="datetime-local" id="end_datetime" class="form-control" required>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Soignants minimum <span class="text-danger">*</span></label>
+              <input type="number" id="min_staff" class="form-control" min="1" value="1" required>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Soignants maximum <span class="text-danger">*</span></label>
+              <input type="number" id="max_staff" class="form-control" min="1" value="3" required>
+            </div>
+
+          </div>
+
+          <!-- Info type de garde sélectionné -->
+          <div id="shift-type-info" class="alert alert-info mt-3 d-none">
+            <div class="d-flex gap-3">
+              <span><i class="bi bi-clock me-1"></i><strong id="info-duration">—</strong>h</span>
+              <span id="info-rest-badge"></span>
+              <span id="info-night-badge"></span>
+            </div>
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex gap-2 justify-content-end">
+            <a href="{% url 'frontend:shift_list' %}" class="btn btn-outline-secondary">
+              <i class="bi bi-x-lg me-1"></i>Annuler
+            </a>
+            <button type="submit" class="btn btn-primary" id="submit-btn">
+              <i class="bi bi-check-lg me-1"></i>
+              {% if shift_id %}Enregistrer{% else %}Créer le poste{% endif %}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const SHIFT_ID = {{ shift_id|default:"null" }};
+let shiftTypes = [];
+
+async function loadSelectData() {
+  const [cuRes, stRes] = await Promise.all([
+    apiFetch('/api/care-units/?format=json'),
+    apiFetch('/api/shift-types/?format=json'),
+  ]);
+  const careUnits = await cuRes.json().then(d => d.results || d);
+  shiftTypes      = await stRes.json().then(d => d.results || d);
+
+  const cuSel = document.getElementById('care_unit');
+  careUnits.forEach(cu => cuSel.insertAdjacentHTML('beforeend',
+    `<option value="${cu.id}">${cu.name} (${cu.service_name || cu.service})</option>`));
+
+  const stSel = document.getElementById('shift_type');
+  shiftTypes.forEach(st => stSel.insertAdjacentHTML('beforeend',
+    `<option value="${st.id}">${st.name} (${st.duration_hours}h${st.is_night_shift ? ' 🌙' : ''})</option>`));
+
+  if (SHIFT_ID) loadShift();
+}
+
+document.getElementById('shift_type').addEventListener('change', function() {
+  const st = shiftTypes.find(s => s.id == this.value);
+  const info = document.getElementById('shift-type-info');
+  if (!st) { info.classList.add('d-none'); return; }
+  info.classList.remove('d-none');
+  document.getElementById('info-duration').textContent = st.duration_hours;
+  document.getElementById('info-rest-badge').innerHTML = st.requires_rest_after
+    ? `<span class="badge bg-warning text-dark"><i class="bi bi-moon me-1"></i>Repos ${st.rest_duration_hours}h requis</span>`
+    : '';
+  document.getElementById('info-night-badge').innerHTML = st.is_night_shift
+    ? '<span class="badge bg-dark"><i class="bi bi-moon-stars me-1"></i>Garde de nuit</span>'
+    : '';
+});
+
+async function loadShift() {
+  const res = await apiFetch(`/api/shifts/${SHIFT_ID}/?format=json`);
+  if (!res.ok) { showToast('Poste introuvable.', 'danger'); return; }
+  const sh = await res.json();
+  document.getElementById('care_unit').value      = sh.care_unit;
+  document.getElementById('shift_type').value     = sh.shift_type;
+  document.getElementById('start_datetime').value = sh.start_datetime.slice(0,16);
+  document.getElementById('end_datetime').value   = sh.end_datetime.slice(0,16);
+  document.getElementById('min_staff').value      = sh.min_staff;
+  document.getElementById('max_staff').value      = sh.max_staff;
+  document.getElementById('shift_type').dispatchEvent(new Event('change'));
+}
+
+document.getElementById('shift-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  document.getElementById('form-errors').classList.add('d-none');
+
+  const payload = {
+    care_unit:       parseInt(document.getElementById('care_unit').value),
+    shift_type:      parseInt(document.getElementById('shift_type').value),
+    start_datetime:  document.getElementById('start_datetime').value,
+    end_datetime:    document.getElementById('end_datetime').value,
+    min_staff:       parseInt(document.getElementById('min_staff').value),
+    max_staff:       parseInt(document.getElementById('max_staff').value),
+  };
+
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Enregistrement…';
+
+  const method = SHIFT_ID ? 'PUT' : 'POST';
+  const url    = SHIFT_ID ? `/api/shifts/${SHIFT_ID}/` : '/api/shifts/';
+  const res = await apiFetch(url, { method, body: JSON.stringify(payload) });
+
+  btn.disabled = false;
+  btn.innerHTML = SHIFT_ID ? '<i class="bi bi-check-lg me-1"></i>Enregistrer' : '<i class="bi bi-check-lg me-1"></i>Créer le poste';
+
+  if (res.ok) {
+    showToast(SHIFT_ID ? 'Poste mis à jour.' : 'Poste créé.');
+    setTimeout(() => window.location.href = "{% url 'frontend:shift_list' %}", 800);
+  } else {
+    const err = await res.json();
+    const box = document.getElementById('form-errors');
+    box.classList.remove('d-none');
+    box.innerHTML = Object.entries(err).map(([k,v]) =>
+      `<div><strong>${k} :</strong> ${Array.isArray(v) ? v.join(' ') : v}</div>`
+    ).join('');
+  }
+});
+
+loadSelectData();
+</script>
+{% endblock %}

@@ -1,0 +1,188 @@
+{% extends "frontend/base.html" %}
+{% block title %}Types de garde — HospiPlan{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="page-title">
+    <h1><i class="bi bi-clock me-2"></i>Types de garde</h1>
+    <p>Définir les modèles de créneaux (matin, soir, nuit…)</p>
+  </div>
+  <button class="btn btn-primary" onclick="openForm()">
+    <i class="bi bi-plus-lg me-1"></i>Nouveau type
+  </button>
+</div>
+
+<!-- Formulaire inline (caché par défaut) -->
+<div id="form-card" class="card mb-3 d-none">
+  <div class="card-header fw-semibold" id="form-title">Nouveau type de garde</div>
+  <div class="card-body">
+    <div id="form-errors" class="alert alert-danger d-none mb-3"></div>
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Nom <span class="text-danger">*</span></label>
+        <input type="text" id="st-name" class="form-control" placeholder="ex: Matin, Nuit, Soirée…">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-semibold">Durée (h) <span class="text-danger">*</span></label>
+        <input type="number" id="st-duration" class="form-control" min="1" max="24" value="8">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-semibold">Repos après (h)</label>
+        <input type="number" id="st-rest-duration" class="form-control" min="0" max="24" value="11">
+      </div>
+      <div class="col-md-4 d-flex flex-column justify-content-end gap-2">
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="st-requires-rest">
+          <label class="form-check-label" for="st-requires-rest">Repos obligatoire après</label>
+        </div>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="st-night">
+          <label class="form-check-label" for="st-night">Garde de nuit</label>
+        </div>
+      </div>
+    </div>
+    <div class="d-flex gap-2 justify-content-end mt-3">
+      <button class="btn btn-outline-secondary" onclick="closeForm()">
+        <i class="bi bi-x-lg me-1"></i>Annuler
+      </button>
+      <button class="btn btn-primary" onclick="saveShiftType()">
+        <i class="bi bi-check-lg me-1"></i>Enregistrer
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Tableau -->
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Nom</th>
+            <th>Durée</th>
+            <th>Repos requis</th>
+            <th>Durée repos</th>
+            <th>Type</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="st-body">
+          <tr><td colspan="6" class="text-center text-muted py-4">
+            <div class="spinner-border spinner-border-sm me-2"></div>Chargement…
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let shiftTypes = [];
+let editId = null;
+
+async function loadShiftTypes() {
+  const res = await apiFetch('/api/shift-types/?format=json');
+  shiftTypes = await res.json().then(d => d.results || d);
+  renderTable();
+}
+
+function renderTable() {
+  const tbody = document.getElementById('st-body');
+  if (shiftTypes.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">Aucun type de garde. Créez-en un.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = shiftTypes.map(st => `
+    <tr>
+      <td><strong>${st.name}</strong></td>
+      <td><span class="badge bg-primary-subtle text-primary">${st.duration_hours}h</span></td>
+      <td>
+        ${st.requires_rest_after
+          ? '<span class="badge bg-warning text-dark"><i class="bi bi-check me-1"></i>Oui</span>'
+          : '<span class="badge bg-secondary-subtle text-secondary">Non</span>'}
+      </td>
+      <td>${st.requires_rest_after ? `<span class="text-muted">${st.rest_duration_hours}h</span>` : '—'}</td>
+      <td>
+        ${st.is_night_shift
+          ? '<span class="badge badge-night"><i class="bi bi-moon-stars me-1"></i>Nuit</span>'
+          : '<span class="badge badge-day"><i class="bi bi-sun me-1"></i>Jour</span>'}
+      </td>
+      <td class="text-end">
+        <button class="btn btn-sm btn-outline-primary me-1" onclick="editShiftType(${st.id})">
+          <i class="bi bi-pencil"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteShiftType(${st.id}, '${st.name}')">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
+    </tr>`).join('');
+}
+
+function openForm(st = null) {
+  editId = st ? st.id : null;
+  document.getElementById('form-title').textContent = st ? 'Modifier le type de garde' : 'Nouveau type de garde';
+  document.getElementById('st-name').value           = st ? st.name : '';
+  document.getElementById('st-duration').value       = st ? st.duration_hours : 8;
+  document.getElementById('st-rest-duration').value  = st ? st.rest_duration_hours : 11;
+  document.getElementById('st-requires-rest').checked = st ? st.requires_rest_after : false;
+  document.getElementById('st-night').checked         = st ? st.is_night_shift : false;
+  document.getElementById('form-errors').classList.add('d-none');
+  document.getElementById('form-card').classList.remove('d-none');
+  document.getElementById('st-name').focus();
+}
+
+function closeForm() {
+  editId = null;
+  document.getElementById('form-card').classList.add('d-none');
+}
+
+function editShiftType(id) {
+  const st = shiftTypes.find(s => s.id === id);
+  if (st) openForm(st);
+}
+
+async function saveShiftType() {
+  const payload = {
+    name:               document.getElementById('st-name').value.trim(),
+    duration_hours:     parseInt(document.getElementById('st-duration').value),
+    rest_duration_hours: parseInt(document.getElementById('st-rest-duration').value),
+    requires_rest_after: document.getElementById('st-requires-rest').checked,
+    is_night_shift:      document.getElementById('st-night').checked,
+  };
+  if (!payload.name) { showToast('Le nom est requis.', 'warning'); return; }
+
+  const method = editId ? 'PUT' : 'POST';
+  const url    = editId ? `/api/shift-types/${editId}/` : '/api/shift-types/';
+  const res = await apiFetch(url, { method, body: JSON.stringify(payload) });
+
+  if (res.ok) {
+    showToast(editId ? 'Type mis à jour.' : 'Type créé.');
+    closeForm();
+    loadShiftTypes();
+  } else {
+    const err = await res.json();
+    const box = document.getElementById('form-errors');
+    box.classList.remove('d-none');
+    box.innerHTML = Object.entries(err).map(([k,v]) =>
+      `<div><strong>${k} :</strong> ${Array.isArray(v) ? v.join(' ') : v}</div>`).join('');
+  }
+}
+
+async function deleteShiftType(id, name) {
+  if (!confirmDelete(`Supprimer le type "${name}" ?`)) return;
+  const res = await apiFetch(`/api/shift-types/${id}/`, { method: 'DELETE' });
+  if (res.status === 204) {
+    showToast(`Type "${name}" supprimé.`);
+    shiftTypes = shiftTypes.filter(s => s.id !== id);
+    renderTable();
+  } else {
+    showToast('Erreur lors de la suppression.', 'danger');
+  }
+}
+
+loadShiftTypes();
+</script>
+{% endblock %}
