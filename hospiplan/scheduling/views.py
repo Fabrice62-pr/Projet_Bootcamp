@@ -12,6 +12,7 @@ from .serializers import (
     PlanningSessionSerializer,
 )
 from .constraints import validate_assignment, check_min_staff_on_delete
+from hospiplan.events import publish_event, recipient, shift_details
 
 
 class ShiftTypeViewSet(viewsets.ModelViewSet):
@@ -75,6 +76,10 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
             return error_response
 
         self.perform_create(serializer)
+        publish_event('assignment.created', {
+            'assignment_id': serializer.instance.id,
+            'recipients': [recipient(staff, shift=shift_details(shift))],
+        })
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
@@ -131,8 +136,14 @@ class PlanningSessionViewSet(viewsets.ModelViewSet):
         # Recaler sur le lundi
         ws = ws - timedelta(days=ws.weekday())
 
-        from .generator import generate_planning
-        session, unpaved_ids = generate_planning(ws)
+        from .generator import EngineError, generate_planning
+        try:
+            session, unpaved_ids = generate_planning(ws)
+        except EngineError as exc:
+            return Response(
+                {'error': f"{exc} Reessayez dans quelques instants."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         data = PlanningSessionSerializer(session).data
         data['unpaved_shift_ids'] = unpaved_ids
@@ -146,17 +157,20 @@ class PlanningSessionViewSet(viewsets.ModelViewSet):
 
         created_count = 0
         errors = []
+        published = {}  # staff_id -> (staff, [shifts]) pour la notification
 
         for da in session.draft_assignments.select_related(
             'staff', 'shift__shift_type', 'shift__care_unit__service'
         ):
             if ShiftAssignment.objects.filter(staff=da.staff, shift=da.shift).exists():
                 created_count += 1
+                published.setdefault(da.staff_id, (da.staff, []))[1].append(da.shift)
                 continue
             try:
                 validate_assignment(da.staff, da.shift)
                 ShiftAssignment.objects.create(staff=da.staff, shift=da.shift)
                 created_count += 1
+                published.setdefault(da.staff_id, (da.staff, []))[1].append(da.shift)
             except ValidationError as exc:
                 reason = exc.message if isinstance(exc.message, str) else '; '.join(exc.messages)
                 errors.append({
@@ -167,6 +181,17 @@ class PlanningSessionViewSet(viewsets.ModelViewSet):
 
         session.status = 'published'
         session.save()
+
+        if published:
+            publish_event('planning.published', {
+                'session_id': session.id,
+                'week_start': session.week_start,
+                'week_end': session.week_end,
+                'recipients': [
+                    recipient(staff, shifts=[shift_details(s) for s in shifts])
+                    for staff, shifts in published.values()
+                ],
+            })
 
         return Response({
             'status': 'published',

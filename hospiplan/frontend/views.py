@@ -1,5 +1,6 @@
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView, LogoutView
+from django.http import HttpResponse, HttpResponseBadRequest
 from django.shortcuts import render
 from django.views.decorators.http import require_POST
 from django.urls import reverse_lazy
@@ -168,6 +169,36 @@ def assignment_new(request):
 @login_required
 def planning(request):
     return render(request, 'frontend/planning/planning.html')
+
+
+@login_required
+def planning_pdf(request):
+    """
+    Telechargement du planning en PDF. Le PDF est produit par le microservice
+    Reporting ; le Core verifie la session puis relaie, la cle d'API ne quitte
+    donc jamais le serveur.
+    """
+    from datetime import date, timedelta
+
+    from scheduling.reporting_client import ReportingError, planning_pdf as fetch_pdf
+
+    try:
+        week_start = date.fromisoformat(request.GET.get('week_start', ''))
+    except ValueError:
+        return HttpResponseBadRequest('Parametre week_start invalide (AAAA-MM-JJ).')
+    week_start -= timedelta(days=week_start.weekday())
+
+    try:
+        pdf = fetch_pdf(week_start)
+    except ReportingError as exc:
+        return HttpResponse(
+            f'{exc} Reessayez dans quelques instants.',
+            status=503, content_type='text/plain; charset=utf-8',
+        )
+
+    response = HttpResponse(pdf, content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="planning-{week_start.isoformat()}.pdf"'
+    return response
 
 
 # ── Référentiels ────────────────────────────────────────────────────────

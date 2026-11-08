@@ -176,6 +176,10 @@
         </select>
       </div>
       <div class="ms-auto text-muted small" id="planning-info"></div>
+      <button type="button" class="btn btn-sm btn-outline-danger" onclick="downloadPdf()"
+              title="Planning de la semaine affichée, au format PDF">
+        <i class="bi bi-file-earmark-pdf me-1"></i>Télécharger le PDF
+      </button>
     </div>
   </div>
 </div>
@@ -231,9 +235,18 @@ function getMonday(d) {
   return copy;
 }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
-function toISO(d) { return d.toISOString().slice(0,10); }
+// Date LOCALE au format AAAA-MM-JJ. toISOString() convertirait en UTC : a Paris,
+// le lundi 00:00 deviendrait le dimanche, et toute la semaine serait decalee.
+function toISO(d) {
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
 function fmtDay(d) {
   return d.toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short' });
+}
+function downloadPdf() {
+  window.location.href = "{% url 'frontend:planning_pdf' %}?week_start=" + toISO(currentMonday);
 }
 function changeWeek(n) { currentMonday = addDays(currentMonday, n * 7); renderPlanning(); }
 function goToday()     { currentMonday = getMonday(new Date()); renderPlanning(); }

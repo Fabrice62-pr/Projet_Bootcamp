@@ -28,6 +28,7 @@ urlpatterns = [
 
     # Planning
     path('planning/', views.planning, name='planning'),
+    path('planning/pdf/', views.planning_pdf, name='planning_pdf'),
 
     # Référentiels
     path('referentiel/services/', views.ref_services, name='ref_services'),

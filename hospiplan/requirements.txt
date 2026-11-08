@@ -1,0 +1,13 @@
+Django==6.0.3
+djangorestframework==3.17.1
+psycopg2-binary==2.9.11
+asgiref==3.11.1
+sqlparse==0.5.5
+tzdata==2025.3
+
+# Production : serveur WSGI (Linux uniquement) et fichiers statiques
+gunicorn==23.0.0
+whitenoise==6.9.0
+
+# Stockage des evenements (Azure Storage Queue). Vide = publication desactivee.
+azure-storage-queue==12.12.0

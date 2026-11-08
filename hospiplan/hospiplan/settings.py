@@ -56,7 +56,18 @@ if not SECRET_KEY:
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('1', 'true', 'yes')
 
-ALLOWED_HOSTS = []
+def _env_list(name: str, default: str = '') -> list[str]:
+    """Lit une variable 'a,b,c' et renvoie ['a', 'b', 'c']."""
+    return [v.strip() for v in os.environ.get(name, default).split(',') if v.strip()]
+
+
+# Noms d'hote acceptes. En local : localhost. Sur Azure App Service :
+# app-hospiplan-core.azurewebsites.net (defini dans les Application settings).
+ALLOWED_HOSTS = _env_list('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1')
+
+# Origines autorisees pour les formulaires POST en HTTPS (obligatoire derriere
+# un domaine public). Ex. : https://app-hospiplan-core.azurewebsites.net
+CSRF_TRUSTED_ORIGINS = _env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
 
 
 # Application definition
@@ -107,6 +118,8 @@ REST_FRAMEWORK = {
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Sert les fichiers statiques (admin, API navigable) sans serveur web dedie.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -157,6 +170,26 @@ DATABASES = {
 MCP_BASE_URL = os.environ.get('MCP_BASE_URL', 'http://localhost:4000')
 MCP_VERIFY_SECRET = os.environ.get('MCP_VERIFY_SECRET', '')
 
+# Microservice "Moteur de planning" (microservices/engine).
+# En local : http://localhost:8001 ; dans docker compose : http://engine:8001 ;
+# sur Azure : l'adresse de la VM.
+ENGINE_URL = os.environ.get('ENGINE_URL', 'http://localhost:8001')
+ENGINE_API_KEY = os.environ.get('ENGINE_API_KEY', '')
+ENGINE_TIMEOUT_SECONDS = int(os.environ.get('ENGINE_TIMEOUT_SECONDS', '60'))
+
+# File d'evenements lue par le microservice Notifications (Azure Storage Queue).
+# Vide = publication desactivee. En local : Azurite (voir docker-compose.yml).
+EVENTS_STORAGE_CONNECTION_STRING = os.environ.get('EVENTS_STORAGE_CONNECTION_STRING', '')
+EVENTS_QUEUE_NAME = os.environ.get('EVENTS_QUEUE_NAME', 'notification-events')
+
+# Microservice "Reporting" (microservices/reporting).
+#   REPORTING_API_KEY     : le Core -> Reporting (telechargement du PDF)
+#   REPORTING_SERVICE_KEY : Reporting -> le Core (/api/internal/planning-report/)
+REPORTING_URL = os.environ.get('REPORTING_URL', 'http://localhost:7072')
+REPORTING_API_KEY = os.environ.get('REPORTING_API_KEY', '')
+REPORTING_SERVICE_KEY = os.environ.get('REPORTING_SERVICE_KEY', '')
+REPORTING_TIMEOUT_SECONDS = int(os.environ.get('REPORTING_TIMEOUT_SECONDS', '60'))
+
 LOGIN_URL = 'frontend:login'
 LOGIN_REDIRECT_URL = 'frontend:dashboard'
 LOGOUT_REDIRECT_URL = 'frontend:login'
@@ -201,3 +234,23 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
+}
+
+
+# Production (DEBUG=False) : Azure termine le HTTPS sur son proxy et transmet
+# la requete en HTTP avec l'en-tete X-Forwarded-Proto.
+# DJANGO_SECURE_SSL_REDIRECT=False permet de tester la config de production
+# en HTTP local (docker compose).
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    _https = os.environ.get('DJANGO_SECURE_SSL_REDIRECT', 'True').lower() in ('1', 'true', 'yes')
+    SECURE_SSL_REDIRECT = _https
+    # /health/ doit rester joignable en HTTP par les sondes internes.
+    SECURE_REDIRECT_EXEMPT = [r'^health/$']
+    SESSION_COOKIE_SECURE = _https
+    CSRF_COOKIE_SECURE = _https
