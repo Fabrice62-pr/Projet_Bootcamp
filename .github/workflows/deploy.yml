@@ -39,7 +39,7 @@ jobs:
       name: production
       url: ${{ env.CORE_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Deploiement (build Oryx cote Azure, migrations au demarrage)
         uses: azure/webapps-deploy@v3
         with:
@@ -75,7 +75,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: Azure/functions-action@v1
         with:
           app-name: func-hospiplan-notif
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: Azure/functions-action@v1
         with:
           app-name: func-hospiplan-report
@@ -104,5 +104,5 @@ jobs:
     needs: [core, engine, notifications, reporting]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: bash deploy/smoke-test.sh

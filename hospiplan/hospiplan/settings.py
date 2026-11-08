@@ -258,3 +258,11 @@ if not DEBUG:
     # courte par defaut (1 h), a allonger une fois le HTTPS eprouve.
     if _https:
         SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_HSTS_SECONDS', '3600'))
+        # Les seuls sous-domaines (ex. console Kudu *.scm.azurewebsites.net)
+        # sont geres par Azure et deja servis en HTTPS.
+        SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+
+# Preload HSTS volontairement non active : la liste de prechargement des
+# navigateurs n'accepte pas un sous-domaine partage comme *.azurewebsites.net,
+# et une inscription y est quasi irreversible.
+SILENCED_SYSTEM_CHECKS = ['security.W021']
