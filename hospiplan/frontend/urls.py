@@ -10,6 +10,17 @@ urlpatterns = [
     # Deuxieme etape du lien de connexion conversationnel.
     path('login/confirm/', views.chat_link_confirm, name='chat_link_confirm'),
 
+    # Creation de compte (validee par un administrateur)
+    path('register/', views.register, name='register'),
+    path('register/done/', views.register_done, name='register_done'),
+
+    # Mot de passe oublie
+    path('password-reset/', views.HospiPasswordResetView.as_view(), name='password_reset'),
+    path('password-reset/done/', views.HospiPasswordResetDoneView.as_view(), name='password_reset_done'),
+    path('reset/<uidb64>/<token>/', views.HospiPasswordResetConfirmView.as_view(),
+         name='password_reset_confirm'),
+    path('reset/done/', views.HospiPasswordResetCompleteView.as_view(), name='password_reset_complete'),
+
     # Dashboard
     path('', views.dashboard, name='dashboard'),
 

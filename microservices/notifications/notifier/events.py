@@ -14,7 +14,10 @@ n'a jamais besoin d'interroger le Core.
 import json
 from dataclasses import dataclass, field
 
-EVENT_TYPES = {'planning.published', 'assignment.created', 'absence.created', 'report.weekly'}
+EVENT_TYPES = {
+    'planning.published', 'assignment.created', 'absence.created', 'report.weekly',
+    'password.reset_requested', 'account.requested', 'account.activated',
+}
 SUPPORTED_VERSION = 1
 MAX_RECIPIENTS = 1000
 

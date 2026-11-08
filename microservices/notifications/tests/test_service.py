@@ -127,6 +127,39 @@ def test_weekly_report_email():
     assert 'Alice Martin (36 h / 40 h)' in msg.text
 
 
+def test_password_reset_email_has_clickable_link():
+    url = 'https://app-hospiplan-core.azurewebsites.net/reset/MQ/abc-123/'
+    ev = parse_event(event('password.reset_requested', expires_hours=2,
+                           recipients=[{'email': 'a@t.fr', 'name': 'Alice', 'reset_url': url}]))
+    msg = render(ev, ev.recipients[0])
+    assert msg.subject == 'Réinitialisation de votre mot de passe'
+    assert f'Choisir un nouveau mot de passe : {url}' in msg.text
+    assert f'href="{url}"' in msg.html
+    assert 'valable 2 heure(s)' in msg.text
+
+
+def test_unsafe_link_is_dropped():
+    ev = parse_event(event('password.reset_requested',
+                           recipients=[{'email': 'a@t.fr', 'name': 'A', 'reset_url': 'javascript:alert(1)'}]))
+    msg = render(ev, ev.recipients[0])
+    assert 'javascript' not in msg.html and 'javascript' not in msg.text
+
+
+def test_account_request_and_activation_emails():
+    ev = parse_event(event('account.requested', username='jdupont', full_name='Jean Dupont',
+                           email='j@t.fr', review_url='https://x.fr/admin/auth/user/5/change/',
+                           recipients=[{'email': 'admin@t.fr', 'name': 'Admin'}]))
+    msg = render(ev, ev.recipients[0])
+    assert msg.subject == 'Nouvelle demande de compte : jdupont'
+    assert 'Jean Dupont (j@t.fr)' in msg.text and 'Examiner la demande' in msg.html
+
+    ev = parse_event(event('account.activated', username='jdupont', login_url='https://x.fr/login/',
+                           recipients=[{'email': 'j@t.fr', 'name': 'Jean Dupont'}]))
+    msg = render(ev, ev.recipients[0])
+    assert msg.subject == 'Votre compte HospiPlan est activé'
+    assert 'Se connecter : https://x.fr/login/' in msg.text
+
+
 def test_sender_configuration():
     assert build_sender({}).mode == 'simulated'
     assert build_sender({'EMAIL_MODE': 'mailpit'}).mode == 'mailpit'

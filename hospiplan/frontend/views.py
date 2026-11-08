@@ -1,11 +1,14 @@
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.views import LoginView, LogoutView
+from django.contrib.auth.views import (
+    LoginView, LogoutView, PasswordResetCompleteView, PasswordResetConfirmView,
+    PasswordResetDoneView, PasswordResetView,
+)
 from django.http import HttpResponse, HttpResponseBadRequest
 from django.shortcuts import render
 from django.views.decorators.http import require_POST
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 
-from .forms import LoginForm
+from .forms import LoginForm, NewPasswordForm, PasswordResetRequestForm, RegisterForm
 from .mcp_link import validate_chat_link
 
 
@@ -76,6 +79,77 @@ class HospiLoginView(LoginView):
 class HospiLogoutView(LogoutView):
     """Deconnexion (POST uniquement, conformement a Django >= 5)."""
     next_page = reverse_lazy('frontend:login')
+
+
+# ── Creation de compte (validee par un administrateur) ─────────────────
+
+def register(request):
+    """
+    Demande de compte : le compte est cree inactif et les administrateurs
+    sont prevenus par e-mail (evenement "account.requested").
+    """
+    from django.contrib.auth import get_user_model
+    from django.shortcuts import redirect
+
+    from hospiplan.events import publish_event, recipient_user
+
+    if request.user.is_authenticated:
+        return redirect('frontend:dashboard')
+
+    form = RegisterForm(request.POST or None)
+    if request.method == 'POST':
+        # Champ piege rempli : c'est un robot. On simule un succes sans rien creer.
+        if request.POST.get('website'):
+            return redirect('frontend:register_done')
+        if form.is_valid():
+            user = form.save()
+            admins = get_user_model().objects.filter(
+                is_superuser=True, is_active=True
+            ).exclude(email='')
+            if admins:
+                publish_event('account.requested', {
+                    'username': user.username,
+                    'full_name': user.get_full_name(),
+                    'email': user.email,
+                    'review_url': request.build_absolute_uri(
+                        reverse('admin:auth_user_change', args=[user.pk])
+                    ),
+                    'recipients': [recipient_user(a) for a in admins],
+                })
+            return redirect('frontend:register_done')
+
+    return render(request, 'frontend/auth/register.html', {'form': form})
+
+
+def register_done(request):
+    return render(request, 'frontend/auth/register_done.html')
+
+
+# ── Mot de passe oublie ────────────────────────────────────────────────
+
+class HospiPasswordResetView(PasswordResetView):
+    template_name = 'frontend/auth/password_reset.html'
+    form_class = PasswordResetRequestForm
+    success_url = reverse_lazy('frontend:password_reset_done')
+
+
+class HospiPasswordResetDoneView(PasswordResetDoneView):
+    template_name = 'frontend/auth/password_reset_done.html'
+
+    def get_context_data(self, **kwargs):
+        from django.conf import settings
+        return {**super().get_context_data(**kwargs),
+                'reset_hours': settings.PASSWORD_RESET_TIMEOUT // 3600}
+
+
+class HospiPasswordResetConfirmView(PasswordResetConfirmView):
+    template_name = 'frontend/auth/password_reset_confirm.html'
+    form_class = NewPasswordForm
+    success_url = reverse_lazy('frontend:password_reset_complete')
+
+
+class HospiPasswordResetCompleteView(PasswordResetCompleteView):
+    template_name = 'frontend/auth/password_reset_complete.html'
 
 
 @login_required

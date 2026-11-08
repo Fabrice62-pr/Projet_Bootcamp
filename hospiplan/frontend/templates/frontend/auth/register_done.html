@@ -1,0 +1,16 @@
+{% extends 'frontend/auth/base_auth.html' %}
+{% block title %}Demande envoyée{% endblock %}
+
+{% block card %}
+<div class="text-center">
+  <i class="bi bi-hourglass-split auth-icon text-primary"></i>
+  <h2 class="card-title">Demande envoyée</h2>
+  <p class="card-sub mb-3">
+    Votre compte a bien été créé. Il sera utilisable dès qu'un administrateur l'aura validé ;
+    vous en serez informé(e) par e-mail.
+  </p>
+</div>
+<a class="btn-login d-block text-center text-decoration-none" href="{% url 'frontend:login' %}">
+  <i class="bi bi-arrow-left me-1"></i> Retour à la connexion
+</a>
+{% endblock %}

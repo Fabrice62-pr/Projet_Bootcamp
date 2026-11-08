@@ -190,6 +190,13 @@ REPORTING_API_KEY = os.environ.get('REPORTING_API_KEY', '')
 REPORTING_SERVICE_KEY = os.environ.get('REPORTING_SERVICE_KEY', '')
 REPORTING_TIMEOUT_SECONDS = int(os.environ.get('REPORTING_TIMEOUT_SECONDS', '60'))
 
+# Adresse publique du site, pour les liens envoyes par e-mail hors requete
+# (ex. "votre compte est active"). Sur Azure : https://app-hospiplan-core.azurewebsites.net
+SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
+
+# Duree de validite d'un lien "mot de passe oublie" (2 h ; 3 jours par defaut dans Django).
+PASSWORD_RESET_TIMEOUT = int(os.environ.get('PASSWORD_RESET_TIMEOUT', str(2 * 3600)))
+
 LOGIN_URL = 'frontend:login'
 LOGIN_REDIRECT_URL = 'frontend:dashboard'
 LOGOUT_REDIRECT_URL = 'frontend:login'

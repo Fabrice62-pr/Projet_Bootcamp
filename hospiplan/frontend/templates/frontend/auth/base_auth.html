@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}Connexion{% endblock %} — HospiPlan</title>
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+  <style>
+    :root {
+      --sidebar-bg: #1a2744;
+      --primary: #1a5276;
+      --accent: #2e86c1;
+      --body-bg: #f0f4f8;
+    }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: var(--body-bg);
+      min-height: 100vh;
+      display: flex;
+    }
+
+    .login-wrapper { display: flex; width: 100%; min-height: 100vh; }
+
+    /* ── Panneau de marque (gauche) ─────────────────── */
+    .brand-panel {
+      flex: 1 1 48%;
+      background: linear-gradient(160deg, #1a2744 0%, #15375c 60%, #1a5276 100%);
+      color: #fff;
+      padding: 3rem 3.5rem;
+      display: flex; flex-direction: column; justify-content: space-between;
+      position: relative; overflow: hidden;
+    }
+    .brand-panel::after {
+      content: ''; position: absolute;
+      width: 460px; height: 460px; right: -160px; bottom: -180px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(46,134,193,.35) 0%, transparent 70%);
+    }
+
+    .brand-head { display: flex; align-items: center; gap: .85rem; }
+    .brand-head .logo-icon {
+      width: 44px; height: 44px; background: var(--accent);
+      border-radius: 10px; display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem;
+    }
+    .brand-head .logo-text { font-weight: 700; font-size: 1.25rem; letter-spacing: .5px; }
+    .brand-head .logo-sub {
+      font-size: .65rem; letter-spacing: 1.5px; text-transform: uppercase;
+      color: rgba(255,255,255,.55);
+    }
+
+    .brand-body { position: relative; z-index: 1; }
+    .brand-body h1 {
+      font-size: 2rem; font-weight: 700; line-height: 1.25; margin-bottom: 1rem;
+    }
+    .brand-body p { color: rgba(255,255,255,.7); font-size: .95rem; max-width: 34rem; }
+
+    .brand-features { list-style: none; padding: 0; margin: 2rem 0 0; }
+    .brand-features li {
+      display: flex; align-items: flex-start; gap: .75rem;
+      color: rgba(255,255,255,.85); font-size: .9rem; margin-bottom: .85rem;
+    }
+    .brand-features .bi { color: #5dade2; font-size: 1.05rem; margin-top: .1rem; }
+
+    .brand-foot { font-size: .75rem; color: rgba(255,255,255,.45); position: relative; z-index: 1; }
+
+    /* ── Panneau formulaire (droite) ────────────────── */
+    .form-panel {
+      flex: 1 1 52%;
+      display: flex; align-items: center; justify-content: center;
+      padding: 2.5rem 1.5rem;
+    }
+    .login-card { width: 100%; max-width: 24rem; }
+    .login-card .card-title {
+      font-size: 1.5rem; font-weight: 700; color: var(--primary); margin-bottom: .35rem;
+    }
+    .login-card .card-sub { font-size: .85rem; color: #6c757d; margin-bottom: 2rem; }
+
+    .login-card label {
+      font-size: .78rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .5px; color: #6c757d; margin-bottom: .35rem;
+    }
+    .login-card .form-control {
+      border-radius: 10px; border: 1px solid #d6dee6;
+      padding: .7rem .95rem; font-size: .95rem;
+    }
+    .login-card .form-control:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 .2rem rgba(46,134,193,.15);
+    }
+
+    .input-password { position: relative; }
+    .input-password .toggle-pwd {
+      position: absolute; right: .6rem; top: 50%; transform: translateY(-50%);
+      border: 0; background: none; color: #90a4ae; padding: .25rem .4rem;
+      line-height: 1; cursor: pointer;
+    }
+    .input-password .toggle-pwd:hover { color: var(--accent); }
+
+    .btn-login {
+      background: var(--accent); border: none; color: #fff;
+      border-radius: 10px; padding: .75rem; font-weight: 600;
+      width: 100%; font-size: .95rem;
+      transition: background .15s;
+    }
+    .btn-login:hover { background: var(--primary); color: #fff; }
+
+    .login-alert {
+      border-left: 4px solid #dc3545; background: #fff5f5;
+      border-radius: 8px; padding: .8rem 1rem; font-size: .85rem;
+      color: #721c24; margin-bottom: 1.25rem;
+    }
+    .login-alert .bi { color: #dc3545; }
+    .login-alert.info { border-left-color: var(--accent); background: #f0f7ff; color: #15375c; }
+    .login-alert.info .bi { color: var(--accent); }
+
+    .login-help {
+      margin-top: 1.75rem; padding-top: 1.25rem;
+      border-top: 1px solid #e9ecef;
+      font-size: .78rem; color: #90a4ae; text-align: center;
+    }
+
+    /* ── Responsive ─────────────────────────────────── */
+    @media (max-width: 900px) {
+      .brand-panel { display: none; }
+      .form-panel { flex: 1 1 100%; }
+    }
+  
+    /* ── Liens et variantes (inscription, mot de passe oublie) ── */
+    .auth-link { color: var(--accent); font-weight: 600; text-decoration: none; }
+    .auth-link:hover { color: var(--primary); text-decoration: underline; }
+    .label-row { display: flex; justify-content: space-between; align-items: baseline; }
+    .label-row .auth-link { font-size: .78rem; text-transform: none; letter-spacing: 0; }
+    .login-alert.success { border-left-color: #198754; background: #f0fbf4; color: #0f5132; }
+    .login-alert.success .bi { color: #198754; }
+    .login-card .form-text { font-size: .75rem; color: #90a4ae; margin-top: .3rem; }
+    .login-card .form-text ul { padding-left: 1rem; margin: .25rem 0 0; }
+    .btn-secondary-link {
+      display: block; text-align: center; margin-top: 1rem; font-size: .85rem;
+    }
+    .honeypot { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+    .auth-icon { font-size: 2.6rem; margin-bottom: .75rem; display: block; }
+  </style>
+</head>
+<body>
+
+<div class="login-wrapper">
+
+  <!-- ══ Marque ══════════════════════════════════════════════════════ -->
+  <aside class="brand-panel">
+    <div class="brand-head">
+      <div class="logo-icon"><i class="bi bi-hospital"></i></div>
+      <div>
+        <div class="logo-text">HospiPlan</div>
+        <div class="logo-sub">Gestion hospitalière</div>
+      </div>
+    </div>
+
+    <div class="brand-body">
+      <h1>Le planning soignant,<br>sans violation légale.</h1>
+      <p>
+        Générez des plannings hebdomadaires admissibles et affectez vos équipes
+        avec la garantie que chaque contrainte réglementaire est respectée.
+      </p>
+      <ul class="brand-features">
+        <li><i class="bi bi-shield-check"></i> 8 contraintes dures vérifiées à chaque affectation</li>
+        <li><i class="bi bi-magic"></i> Génération automatique du planning en brouillon</li>
+        <li><i class="bi bi-graph-up"></i> Score de qualité détaillé par contrainte molle</li>
+      </ul>
+    </div>
+
+    <div class="brand-foot">
+      Accès réservé au personnel autorisé de l'établissement.
+    </div>
+  </aside>
+
+  <!-- ══ Formulaire ══════════════════════════════════════════════════ -->
+  <main class="form-panel">
+    <div class="login-card">
+      {% block card %}{% endblock %}
+    </div>
+  </main>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  // Affichage / masquage des mots de passe (tout bouton .toggle-pwd).
+  document.querySelectorAll('.toggle-pwd').forEach((toggle) => {
+    const input = toggle.parentElement.querySelector('input');
+    const icon = toggle.querySelector('i');
+    toggle.addEventListener('click', () => {
+      const shown = input.type === 'text';
+      input.type = shown ? 'password' : 'text';
+      icon.className = shown ? 'bi bi-eye' : 'bi bi-eye-slash';
+      toggle.setAttribute('aria-label', shown ? 'Afficher le mot de passe' : 'Masquer le mot de passe');
+    });
+  });
+</script>
+{% block scripts %}{% endblock %}
+
+</body>
+</html>

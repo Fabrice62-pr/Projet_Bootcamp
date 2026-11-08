@@ -82,6 +82,11 @@ def recipient(staff, **details) -> dict:
     return {'email': staff.email, 'name': f'{staff.first_name} {staff.last_name}'.strip(), **details}
 
 
+def recipient_user(user, **details) -> dict:
+    """Destinataire a partir d'un compte utilisateur Django (et non d'un soignant)."""
+    return {'email': user.email, 'name': user.get_full_name() or user.get_username(), **details}
+
+
 def shift_details(shift) -> dict:
     return {
         'start': shift.start_datetime,

@@ -1,0 +1,26 @@
+{% comment %}
+  Champ de formulaire au style des pages d'authentification.
+  Parametres : field ; password (bouton afficher/masquer) ;
+  link_url + link_text (lien a droite du libelle).
+{% endcomment %}
+<div class="mb-3">
+  <div class="label-row">
+    <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+    {% if link_url %}<a class="auth-link" href="{{ link_url }}">{{ link_text }}</a>{% endif %}
+  </div>
+  {% if password %}
+    <div class="input-password">
+      {{ field }}
+      <button type="button" class="toggle-pwd" aria-label="Afficher le mot de passe">
+        <i class="bi bi-eye"></i>
+      </button>
+    </div>
+  {% else %}
+    {{ field }}
+  {% endif %}
+  {% if field.errors %}
+    {% for error in field.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+  {% elif field.help_text %}
+    <div class="form-text">{{ field.help_text|safe }}</div>
+  {% endif %}
+</div>

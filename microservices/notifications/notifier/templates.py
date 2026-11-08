@@ -46,23 +46,41 @@ def _shift_line(shift: dict) -> str:
             f"{shift.get('shift_type', 'Garde')}, {shift.get('service', '')} / {shift.get('care_unit', '')}")
 
 
-def _build(subject, greeting_name, paragraphs, items=(), footer=()):
+def _safe_url(url) -> str:
+    """Seuls les liens http(s) sont acceptes (pas de javascript:, data:, ...)."""
+    url = str(url or '').strip()
+    return url if url.startswith(('https://', 'http://')) else ''
+
+
+def _build(subject, greeting_name, paragraphs, items=(), footer=(), action=None):
     hello = f'Bonjour {greeting_name},' if greeting_name else 'Bonjour,'
     signature = "L'équipe planification — HospiPlan"
+    label, url = action if action else ('', '')
+    url = _safe_url(url)
 
     text = '\n\n'.join([hello, *paragraphs])
     if items:
         text += '\n\n' + '\n'.join(f'  - {i}' for i in items)
+    if url:
+        text += f'\n\n{label} : {url}'
     if footer:
         text += '\n\n' + '\n\n'.join(footer)
     text += f'\n\n{signature}\n'
 
     html_items = ''.join(f'<li>{escape(i)}</li>' for i in items)
+    html_action = (
+        f'<p style="margin:24px 0"><a href="{escape(url, quote=True)}" '
+        'style="background:#2e86c1;color:#ffffff;padding:12px 22px;border-radius:8px;'
+        f'text-decoration:none;font-weight:600;display:inline-block">{escape(label)}</a></p>'
+        f'<p style="font-size:12px;color:#6b7280">Si le bouton ne fonctionne pas, copiez ce lien : '
+        f'{escape(url)}</p>'
+    ) if url else ''
     html = (
         '<div style="font-family:Segoe UI,Arial,sans-serif;font-size:15px;color:#1f2937">'
         f'<p>{escape(hello)}</p>'
         + ''.join(f'<p>{escape(p)}</p>' for p in paragraphs)
         + (f'<ul>{html_items}</ul>' if items else '')
+        + html_action
         + ''.join(f'<p>{escape(p)}</p>' for p in footer)
         + f'<p style="color:#6b7280">{escape(signature)}</p></div>'
     )
@@ -131,5 +149,40 @@ def render(event, recipient) -> Message:
         footer.append('Le planning détaillé est disponible en PDF depuis la page Planning.')
         return _build(f"Rapport hebdomadaire — semaine du {fmt_date(data.get('week_start', ''))}",
                       recipient.name, paragraphs, items, footer)
+
+    if event.type == 'password.reset_requested':
+        hours = data.get('expires_hours', 2)
+        return _build(
+            'Réinitialisation de votre mot de passe',
+            recipient.name,
+            ['Vous avez demandé à réinitialiser le mot de passe de votre compte HospiPlan.',
+             f'Cliquez sur le bouton ci-dessous pour en choisir un nouveau. Ce lien est valable '
+             f'{hours} heure(s) et ne peut servir qu\'une fois.'],
+            action=('Choisir un nouveau mot de passe', details.get('reset_url')),
+            footer=["Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail : "
+                    "votre mot de passe reste inchangé."],
+        )
+
+    if event.type == 'account.requested':
+        who = data.get('full_name') or data.get('username', '')
+        return _build(
+            f"Nouvelle demande de compte : {data.get('username', '')}",
+            recipient.name,
+            [f"{who} ({data.get('email', '')}) a demandé un compte HospiPlan "
+             f"avec l'identifiant « {data.get('username', '')} ».",
+             "Le compte reste inactif tant qu'un administrateur ne l'a pas validé."],
+            action=('Examiner la demande', data.get('review_url')),
+            footer=["Pour valider : cochez « Actif » sur la fiche, ou utilisez l'action "
+                    "« Valider les comptes sélectionnés » dans la liste des utilisateurs."],
+        )
+
+    if event.type == 'account.activated':
+        return _build(
+            'Votre compte HospiPlan est activé',
+            recipient.name,
+            [f"Votre compte « {data.get('username', '')} » a été validé par un administrateur.",
+             'Vous pouvez désormais vous connecter à HospiPlan.'],
+            action=('Se connecter', data.get('login_url')),
+        )
 
     raise ValueError(f'Aucun modele pour {event.type}')

@@ -1,0 +1,42 @@
+{% extends 'frontend/auth/base_auth.html' %}
+{% block title %}Créer un compte{% endblock %}
+
+{% block card %}
+<h2 class="card-title">Créer un compte</h2>
+<p class="card-sub">
+  Votre demande sera examinée par un administrateur de l'établissement avant activation.
+</p>
+
+{% if form.non_field_errors %}
+  <div class="login-alert d-flex align-items-start gap-2">
+    <i class="bi bi-exclamation-triangle-fill"></i>
+    <div>{% for error in form.non_field_errors %}{{ error }}{% endfor %}</div>
+  </div>
+{% endif %}
+
+<form method="post" novalidate>
+  {% csrf_token %}
+  <div class="row g-2">
+    <div class="col-sm-6">{% include 'frontend/auth/_field.html' with field=form.first_name %}</div>
+    <div class="col-sm-6">{% include 'frontend/auth/_field.html' with field=form.last_name %}</div>
+  </div>
+  {% include 'frontend/auth/_field.html' with field=form.email %}
+  {% include 'frontend/auth/_field.html' with field=form.username %}
+  {% include 'frontend/auth/_field.html' with field=form.password1 password=True %}
+  {% include 'frontend/auth/_field.html' with field=form.password2 password=True %}
+
+  {# Piege a robots : champ invisible pour un humain, rempli par les scripts. #}
+  <div class="honeypot" aria-hidden="true">
+    <label for="id_website">Site web</label>
+    <input type="text" name="website" id="id_website" tabindex="-1" autocomplete="off">
+  </div>
+
+  <button type="submit" class="btn-login mt-2">
+    <i class="bi bi-person-plus me-1"></i> Envoyer ma demande
+  </button>
+</form>
+
+<div class="login-help">
+  Déjà un compte ? <a class="auth-link" href="{% url 'frontend:login' %}">Se connecter</a>
+</div>
+{% endblock %}
