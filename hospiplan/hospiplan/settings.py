@@ -254,3 +254,7 @@ if not DEBUG:
     SECURE_REDIRECT_EXEMPT = [r'^health/$']
     SESSION_COOKIE_SECURE = _https
     CSRF_COOKIE_SECURE = _https
+    # HSTS : le navigateur refusera ensuite le HTTP pour ce domaine. Duree
+    # courte par defaut (1 h), a allonger une fois le HTTPS eprouve.
+    if _https:
+        SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_HSTS_SECONDS', '3600'))

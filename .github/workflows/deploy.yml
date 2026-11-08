@@ -1,0 +1,108 @@
+# Deploiement sur Azure, apres les tests et APRES APPROBATION MANUELLE.
+#
+# Les 4 jobs de deploiement utilisent l'environnement GitHub "production", qui
+# exige l'approbation d'un relecteur : le workflow s'arrete et attend le clic
+# "Approve" (un seul clic approuve les 4 jobs, qui attendent en meme temps).
+# Les secrets de deploiement n'existent que dans cet environnement.
+name: Deploy Azure
+
+on:
+  push:
+    branches: [main, deploiement-azur]
+  workflow_dispatch:
+
+# Jamais deux deploiements en parallele ; un deploiement en cours n'est pas annule.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CORE_URL: https://app-hospiplan-core.azurewebsites.net
+  ENGINE_URL: https://hospiplan-engine-anp6.swedencentral.cloudapp.azure.com
+  NOTIF_URL: https://func-hospiplan-notif.azurewebsites.net
+  REPORT_URL: https://func-hospiplan-report.azurewebsites.net
+  VM_HOST: hospiplan-engine-anp6.swedencentral.cloudapp.azure.com
+
+jobs:
+  tests:
+    name: Tests
+    uses: ./.github/workflows/ci.yml
+
+  core:
+    name: Core -> App Service
+    needs: tests
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ env.CORE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploiement (build Oryx cote Azure, migrations au demarrage)
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: app-hospiplan-core
+          publish-profile: ${{ secrets.AZURE_CORE_PUBLISH_PROFILE }}
+          package: hospiplan
+
+  engine:
+    name: Moteur -> VM
+    needs: tests
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ env.ENGINE_URL }}/docs
+    steps:
+      - name: Cle SSH de deploiement (restreinte au script deploy.sh)
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VM_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Deploiement (git checkout + docker compose sur la VM)
+        run: ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o ConnectTimeout=30 "azureuser@$VM_HOST" "$GITHUB_SHA"
+      - name: Nettoyage
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+  notifications:
+    name: Notifications -> Azure Functions
+    needs: tests
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Azure/functions-action@v1
+        with:
+          app-name: func-hospiplan-notif
+          package: microservices/notifications
+          publish-profile: ${{ secrets.AZURE_NOTIF_PUBLISH_PROFILE }}
+          sku: flexconsumption
+          remote-build: true
+
+  reporting:
+    name: Reporting -> Azure Functions
+    needs: tests
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Azure/functions-action@v1
+        with:
+          app-name: func-hospiplan-report
+          package: microservices/reporting
+          publish-profile: ${{ secrets.AZURE_REPORT_PUBLISH_PROFILE }}
+          sku: flexconsumption
+          remote-build: true
+
+  smoke:
+    name: Tests apres deploiement
+    needs: [core, engine, notifications, reporting]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash deploy/smoke-test.sh

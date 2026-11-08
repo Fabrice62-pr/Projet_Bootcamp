@@ -1,0 +1,4 @@
+# Scripts executes sous Linux (VM, GitHub Actions) : fins de ligne LF.
+*.sh text eol=lf
+Caddyfile text eol=lf
+*.yml text eol=lf

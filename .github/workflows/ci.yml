@@ -1,0 +1,104 @@
+# Integration continue : tests des 4 composants.
+# Lance sur chaque push et pull request, et appele par deploy.yml avant tout
+# deploiement (les branches de deploiement passent donc par deploy.yml).
+name: CI
+
+on:
+  push:
+    branches-ignore: [main, deploiement-azur]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Core (Django)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: hospiplandb
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      # Valeurs de test uniquement : aucun secret reel dans la CI.
+      DJANGO_SECRET_KEY: ci-${{ github.run_id }}-cle-de-test-uniquement-sans-valeur-reelle-0123456789
+      DB_PASSWORD: postgres
+      DB_HOST: localhost
+    defaults:
+      run:
+        working-directory: hospiplan
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: hospiplan/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Verification Django
+        run: python manage.py check
+      - name: Migrations a jour
+        run: python manage.py makemigrations --check --dry-run
+      - name: Reglages de production (HTTPS, cookies, HSTS)
+        env:
+          DJANGO_DEBUG: "False"
+          DJANGO_ALLOWED_HOSTS: app-hospiplan-core.azurewebsites.net
+        run: python manage.py check --deploy --fail-level WARNING
+      - name: Tests
+        run: python manage.py test --noinput
+
+  engine:
+    name: Moteur de planning (FastAPI)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: microservices/engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: microservices/engine/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  notifications:
+    name: Notifications (Azure Functions)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: microservices/notifications
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: microservices/notifications/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  reporting:
+    name: Reporting (Azure Functions)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: microservices/reporting
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: microservices/reporting/requirements.txt
+      - run: pip install -r requirements.txt pytest==8.3.5
+      - run: python -m pytest -q

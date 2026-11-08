@@ -1,0 +1,13 @@
+#cloud-config
+# Preparation de la VM du moteur de planning (execute une seule fois, au
+# premier demarrage). Aucun secret ici : les cles sont deposees ensuite par SSH.
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - git
+runcmd:
+  - systemctl enable --now docker
+  - usermod -aG docker azureuser
+  - mkdir -p /opt/hospiplan
+  - chown azureuser:azureuser /opt/hospiplan

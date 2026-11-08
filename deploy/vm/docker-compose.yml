@@ -1,0 +1,35 @@
+# Production du moteur de planning sur la VM Azure.
+# Lance depuis /opt/hospiplan/src/deploy/vm par le workflow GitHub Actions :
+#   docker compose --env-file /opt/hospiplan/.env up -d --build
+#
+#   Internet --HTTPS 443--> Caddy --HTTP interne--> engine:8001
+# Caddy obtient et renouvelle seul le certificat HTTPS (Let's Encrypt).
+
+services:
+  engine:
+    build: ../../microservices/engine
+    env_file: /opt/hospiplan/engine.env
+    restart: unless-stopped
+    # Pas de port publie : seul Caddy, sur le reseau Docker interne, y accede.
+    expose:
+      - "8001"
+    mem_limit: 400m
+
+  caddy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      ENGINE_DOMAIN: ${ENGINE_DOMAIN:?ENGINE_DOMAIN manquant}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - engine
+
+volumes:
+  caddy_data:
+  caddy_config:

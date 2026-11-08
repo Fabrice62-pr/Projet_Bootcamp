@@ -1,0 +1,9 @@
+# HTTPS automatique pour le moteur (certificat Let's Encrypt renouvele par Caddy).
+{$ENGINE_DOMAIN} {
+	encode gzip
+	reverse_proxy engine:8001
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}
