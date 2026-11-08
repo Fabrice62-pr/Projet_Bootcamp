@@ -51,6 +51,7 @@ class ContractType(models.Model):
     max_hours_per_week = models.IntegerField()
     leave_days_per_year = models.IntegerField()
     night_shift_allowed = models.BooleanField()
+    max_consecutive_nights = models.IntegerField(default=3)
 
     def __str__(self):
         return self.name

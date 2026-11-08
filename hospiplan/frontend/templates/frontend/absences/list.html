@@ -1,0 +1,394 @@
+{% extends "frontend/base.html" %}
+{% block title %}Absences — HospiPlan{% endblock %}
+
+{% block extra_css %}
+<style>
+  .badge-planned   { background:#d1ecf1; color:#0c5460; }
+  .badge-unplanned { background:#f8d7da; color:#721c24; }
+  .badge-ongoing   { background:#fff3cd; color:#856404; }
+  .badge-ended     { background:#d4edda; color:#155724; }
+  .badge-future    { background:#e2e3e5; color:#383d41; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="page-title">
+    <h1><i class="bi bi-calendar-x me-2"></i>Absences</h1>
+    <p>Déclarer et gérer les absences du personnel soignant</p>
+  </div>
+  <button class="btn btn-primary" onclick="openForm()">
+    <i class="bi bi-plus-lg me-1"></i>Nouvelle absence
+  </button>
+</div>
+
+<div class="row g-3">
+
+  <!-- Formulaire -->
+  <div class="col-lg-4">
+    <div class="card d-none" id="form-card">
+      <div class="card-header fw-semibold" id="form-title">
+        <i class="bi bi-pencil-square me-2"></i>Nouvelle absence
+      </div>
+      <div class="card-body">
+        <div id="form-errors" class="alert alert-danger d-none mb-3"></div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Soignant <span class="text-danger">*</span></label>
+          <select id="f-staff" class="form-select">
+            <option value="">— Choisir —</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Type d'absence <span class="text-danger">*</span></label>
+          <select id="f-type" class="form-select">
+            <option value="">— Choisir —</option>
+          </select>
+          <div class="form-text">
+            <a href="{% url 'frontend:ref_absence_types' %}" target="_blank">
+              <i class="bi bi-plus-circle me-1"></i>Gérer les types d'absence
+            </a>
+          </div>
+        </div>
+        <div class="row g-2 mb-3">
+          <div class="col-6">
+            <label class="form-label fw-semibold">Début <span class="text-danger">*</span></label>
+            <input type="date" id="f-start" class="form-control">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold">Fin prévue <span class="text-danger">*</span></label>
+            <input type="date" id="f-end" class="form-control">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Fin réelle</label>
+          <input type="date" id="f-actual-end" class="form-control">
+          <div class="form-text">Renseigner si l'absence s'est terminée avant la date prévue.</div>
+        </div>
+        <div class="mb-3">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="f-planned" checked>
+            <label class="form-check-label fw-semibold" for="f-planned">Absence planifiée</label>
+          </div>
+          <div class="form-text">Décocher pour une absence imprévue (maladie, urgence…).</div>
+        </div>
+        <div class="d-flex gap-2 justify-content-end">
+          <button class="btn btn-outline-secondary" onclick="closeForm()">
+            <i class="bi bi-x-lg me-1"></i>Annuler
+          </button>
+          <button class="btn btn-primary" onclick="saveAbsence()">
+            <i class="bi bi-check-lg me-1"></i>Enregistrer
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Statistiques rapides -->
+    <div class="card" id="stats-card">
+      <div class="card-header"><i class="bi bi-bar-chart me-2"></i>Résumé</div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush" id="stats-list">
+          <li class="list-group-item text-center text-muted py-3">
+            <div class="spinner-border spinner-border-sm me-2"></div>Chargement…
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Liste des absences -->
+  <div class="col-lg-8">
+
+    <!-- Filtres -->
+    <div class="card mb-3">
+      <div class="card-body py-2">
+        <div class="row g-2 align-items-center">
+          <div class="col-md-4">
+            <select id="filter-staff" class="form-select form-select-sm" onchange="renderTable()">
+              <option value="">Tous les soignants</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <select id="filter-type" class="form-select form-select-sm" onchange="renderTable()">
+              <option value="">Tous les types</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <select id="filter-status" class="form-select form-select-sm" onchange="renderTable()">
+              <option value="">Tous les statuts</option>
+              <option value="ongoing">En cours</option>
+              <option value="future">À venir</option>
+              <option value="ended">Terminées</option>
+            </select>
+          </div>
+          <div class="col-auto ms-auto text-muted small">
+            <span id="count-label"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tableau -->
+    <div class="card">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr>
+                <th>Soignant</th>
+                <th>Type</th>
+                <th>Début</th>
+                <th>Fin prévue</th>
+                <th>Fin réelle</th>
+                <th>Statut</th>
+                <th class="text-end">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="absence-body">
+              <tr><td colspan="7" class="text-center text-muted py-4">
+                <div class="spinner-border spinner-border-sm me-2"></div>Chargement…
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const TODAY = new Date().toISOString().slice(0, 10);
+let absences     = [];
+let absenceTypes = [];
+let staffList    = [];
+let editId       = null;
+
+function absenceStatus(a) {
+  const start = a.start_date;
+  const end   = a.actual_end_date || a.expected_end_date;
+  if (start > TODAY) return { label: 'À venir',   cls: 'badge-future',    icon: 'bi-clock' };
+  if (end   < TODAY) return { label: 'Terminée',  cls: 'badge-ended',     icon: 'bi-check-circle' };
+  return               { label: 'En cours',   cls: 'badge-ongoing',   icon: 'bi-exclamation-circle' };
+}
+
+function fmtDate(d) {
+  if (!d) return '—';
+  const [y, m, day] = d.split('-');
+  return `${day}/${m}/${y}`;
+}
+
+// ── Chargement ─────────────────────────────────────────────────────────────
+async function loadAll() {
+  const [absRes, typeRes, staffRes] = await Promise.all([
+    apiFetch('/api/absences/?format=json'),
+    apiFetch('/api/absence-types/?format=json'),
+    apiFetch('/api/staff/?format=json'),
+  ]);
+  absences     = await absRes.json().then(d => d.results || d);
+  absenceTypes = await typeRes.json().then(d => d.results || d);
+  staffList    = await staffRes.json().then(d => d.results || d);
+
+  populateSelects();
+  renderTable();
+  renderStats();
+}
+
+function populateSelects() {
+  // Filtres
+  const fStaff = document.getElementById('filter-staff');
+  const fType  = document.getElementById('filter-type');
+  staffList.filter(s => s.is_active).forEach(s => {
+    fStaff.insertAdjacentHTML('beforeend', `<option value="${s.id}">${s.first_name} ${s.last_name}</option>`);
+  });
+  absenceTypes.forEach(t => {
+    fType.insertAdjacentHTML('beforeend', `<option value="${t.id}">${t.name}</option>`);
+  });
+
+  // Formulaire
+  const fStaffForm = document.getElementById('f-staff');
+  const fTypeForm  = document.getElementById('f-type');
+  staffList.filter(s => s.is_active).forEach(s => {
+    fStaffForm.insertAdjacentHTML('beforeend', `<option value="${s.id}">${s.first_name} ${s.last_name}</option>`);
+  });
+  absenceTypes.forEach(t => {
+    fTypeForm.insertAdjacentHTML('beforeend', `<option value="${t.id}">${t.name}${t.impacts_quota ? ' ✓quota' : ''}</option>`);
+  });
+}
+
+// ── Rendu tableau ──────────────────────────────────────────────────────────
+function renderTable() {
+  const fStaff  = document.getElementById('filter-staff').value;
+  const fType   = document.getElementById('filter-type').value;
+  const fStatus = document.getElementById('filter-status').value;
+
+  let filtered = absences.filter(a => {
+    const st = absenceStatus(a).label;
+    const statusMap = { ongoing: 'En cours', future: 'À venir', ended: 'Terminée' };
+    if (fStaff  && String(a.staff) !== fStaff)  return false;
+    if (fType   && String(a.absence_type) !== fType) return false;
+    if (fStatus && st !== statusMap[fStatus])         return false;
+    return true;
+  });
+
+  // Tri : en cours d'abord, puis à venir, puis terminées
+  const order = { 'En cours': 0, 'À venir': 1, 'Terminée': 2 };
+  filtered.sort((a, b) => (order[absenceStatus(a).label] ?? 9) - (order[absenceStatus(b).label] ?? 9));
+
+  document.getElementById('count-label').textContent = `${filtered.length} absence(s)`;
+
+  const tbody = document.getElementById('absence-body');
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">Aucune absence trouvée.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(a => {
+    const st = absenceStatus(a);
+    const s  = staffList.find(x => x.id === a.staff) || {};
+    return `
+      <tr>
+        <td>
+          <div class="d-flex align-items-center gap-2">
+            <div style="width:30px;height:30px;border-radius:50%;background:#e8f4fd;display:flex;align-items:center;justify-content:center;font-weight:700;color:#2e86c1;font-size:.72rem;flex-shrink:0;">
+              ${(s.first_name||'?')[0]}${(s.last_name||'?')[0]}
+            </div>
+            <span class="fw-semibold">${a.staff_name || (s.first_name + ' ' + s.last_name)}</span>
+          </div>
+        </td>
+        <td>
+          <span class="badge ${a.is_planned ? 'badge-planned' : 'badge-unplanned'}">
+            <i class="bi bi-${a.is_planned ? 'calendar-check' : 'exclamation-triangle'} me-1"></i>
+            ${a.absence_type_name || '—'}
+          </span>
+        </td>
+        <td>${fmtDate(a.start_date)}</td>
+        <td>${fmtDate(a.expected_end_date)}</td>
+        <td>${a.actual_end_date ? fmtDate(a.actual_end_date) : '<span class="text-muted">—</span>'}</td>
+        <td><span class="badge ${st.cls}"><i class="bi ${st.icon} me-1"></i>${st.label}</span></td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-outline-primary me-1" onclick="editAbsence(${a.id})" title="Modifier">
+            <i class="bi bi-pencil"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteAbsence(${a.id}, '${(a.staff_name||'').replace(/'/g,"\\'")}')">
+            <i class="bi bi-trash"></i>
+          </button>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+function renderStats() {
+  const ongoing = absences.filter(a => absenceStatus(a).label === 'En cours').length;
+  const future  = absences.filter(a => absenceStatus(a).label === 'À venir').length;
+  const ended   = absences.filter(a => absenceStatus(a).label === 'Terminée').length;
+
+  document.getElementById('stats-list').innerHTML = `
+    <li class="list-group-item d-flex justify-content-between">
+      <span><i class="bi bi-exclamation-circle text-warning me-2"></i>En cours</span>
+      <span class="badge badge-ongoing">${ongoing}</span>
+    </li>
+    <li class="list-group-item d-flex justify-content-between">
+      <span><i class="bi bi-clock text-secondary me-2"></i>À venir</span>
+      <span class="badge badge-future">${future}</span>
+    </li>
+    <li class="list-group-item d-flex justify-content-between">
+      <span><i class="bi bi-check-circle text-success me-2"></i>Terminées</span>
+      <span class="badge badge-ended">${ended}</span>
+    </li>
+    <li class="list-group-item d-flex justify-content-between">
+      <span><i class="bi bi-list text-primary me-2"></i>Total</span>
+      <strong>${absences.length}</strong>
+    </li>`;
+}
+
+// ── Formulaire ─────────────────────────────────────────────────────────────
+function openForm(a = null) {
+  editId = a ? a.id : null;
+  document.getElementById('form-title').innerHTML =
+    `<i class="bi bi-pencil-square me-2"></i>${a ? 'Modifier l\'absence' : 'Nouvelle absence'}`;
+  document.getElementById('f-staff').value      = a ? a.staff : '';
+  document.getElementById('f-type').value       = a ? a.absence_type : '';
+  document.getElementById('f-start').value      = a ? a.start_date : TODAY;
+  document.getElementById('f-end').value        = a ? a.expected_end_date : '';
+  document.getElementById('f-actual-end').value = a ? (a.actual_end_date || '') : '';
+  document.getElementById('f-planned').checked  = a ? a.is_planned : true;
+  document.getElementById('form-errors').classList.add('d-none');
+  document.getElementById('form-card').classList.remove('d-none');
+  document.getElementById('stats-card').classList.add('d-none');
+  document.getElementById('f-staff').focus();
+}
+
+function closeForm() {
+  editId = null;
+  document.getElementById('form-card').classList.add('d-none');
+  document.getElementById('stats-card').classList.remove('d-none');
+}
+
+function editAbsence(id) {
+  const a = absences.find(x => x.id === id);
+  if (a) openForm(a);
+}
+
+async function saveAbsence() {
+  const staffId = parseInt(document.getElementById('f-staff').value);
+  const typeId  = parseInt(document.getElementById('f-type').value);
+  const start   = document.getElementById('f-start').value;
+  const end     = document.getElementById('f-end').value;
+
+  if (!staffId || !typeId || !start || !end) {
+    showToast('Soignant, type, date de début et fin prévue sont requis.', 'warning');
+    return;
+  }
+  if (end < start) {
+    showToast('La date de fin prévue doit être après la date de début.', 'warning');
+    return;
+  }
+
+  const actualEnd = document.getElementById('f-actual-end').value;
+  const payload = {
+    staff:             staffId,
+    absence_type:      typeId,
+    start_date:        start,
+    expected_end_date: end,
+    actual_end_date:   actualEnd || null,
+    is_planned:        document.getElementById('f-planned').checked,
+  };
+
+  const method = editId ? 'PUT' : 'POST';
+  const url    = editId ? `/api/absences/${editId}/` : '/api/absences/';
+  const res = await apiFetch(url, { method, body: JSON.stringify(payload) });
+
+  if (res.ok) {
+    showToast(editId ? 'Absence mise à jour.' : 'Absence enregistrée.');
+    closeForm();
+    await loadAll();
+  } else {
+    const err = await res.json();
+    const box = document.getElementById('form-errors');
+    box.classList.remove('d-none');
+    box.innerHTML = Object.entries(err).map(([k, v]) =>
+      `<div><strong>${k} :</strong> ${Array.isArray(v) ? v.join(' ') : v}</div>`
+    ).join('');
+  }
+}
+
+async function deleteAbsence(id, name) {
+  if (!confirmDelete(`Supprimer l'absence de ${name} ?`)) return;
+  loading(true);
+  const res = await apiFetch(`/api/absences/${id}/`, { method: 'DELETE' });
+  loading(false);
+  if (res.status === 204) {
+    showToast('Absence supprimée.');
+    absences = absences.filter(a => a.id !== id);
+    renderTable();
+    renderStats();
+  } else {
+    showToast('Erreur lors de la suppression.', 'danger');
+  }
+}
+
+loadAll();
+</script>
+{% endblock %}

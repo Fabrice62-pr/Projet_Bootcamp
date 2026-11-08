@@ -30,7 +30,12 @@
         <label class="form-label fw-semibold">Congés / an (jours) <span class="text-danger">*</span></label>
         <input type="number" id="ct-leave-days" class="form-control" min="0" max="60" value="25">
       </div>
-      <div class="col-md-4 d-flex align-items-end">
+      <div class="col-md-2">
+        <label class="form-label fw-semibold">Nuits consécutives max</label>
+        <input type="number" id="ct-max-nights" class="form-control" min="1" max="14" value="3">
+        <div class="form-text">Contrainte molle du générateur.</div>
+      </div>
+      <div class="col-md-2 d-flex align-items-end">
         <div class="form-check form-switch">
           <input class="form-check-input" type="checkbox" id="ct-night" checked>
           <label class="form-check-label fw-semibold" for="ct-night">Gardes de nuit autorisées</label>
@@ -58,6 +63,7 @@
             <th>Nom</th>
             <th>Heures max / semaine</th>
             <th>Congés / an</th>
+            <th>Nuits consécutives max</th>
             <th>Gardes de nuit</th>
             <th class="text-end">Actions</th>
           </tr>
@@ -95,6 +101,7 @@ function renderTable() {
       <td><strong>${ct.name}</strong></td>
       <td><span class="badge bg-primary-subtle text-primary">${ct.max_hours_per_week}h</span></td>
       <td><span class="text-muted">${ct.leave_days_per_year} jours</span></td>
+      <td><span class="badge bg-secondary-subtle text-secondary">${ct.max_consecutive_nights ?? 3} nuits</span></td>
       <td>
         ${ct.night_shift_allowed
           ? '<span class="badge badge-night"><i class="bi bi-moon-stars me-1"></i>Autorisées</span>'
@@ -114,10 +121,11 @@ function renderTable() {
 function openForm(ct = null) {
   editId = ct ? ct.id : null;
   document.getElementById('form-title').textContent = ct ? 'Modifier le type de contrat' : 'Nouveau type de contrat';
-  document.getElementById('ct-name').value      = ct ? ct.name : '';
-  document.getElementById('ct-max-hours').value = ct ? ct.max_hours_per_week : 35;
-  document.getElementById('ct-leave-days').value = ct ? ct.leave_days_per_year : 25;
-  document.getElementById('ct-night').checked   = ct ? ct.night_shift_allowed : true;
+  document.getElementById('ct-name').value        = ct ? ct.name : '';
+  document.getElementById('ct-max-hours').value   = ct ? ct.max_hours_per_week : 35;
+  document.getElementById('ct-leave-days').value  = ct ? ct.leave_days_per_year : 25;
+  document.getElementById('ct-max-nights').value  = ct ? (ct.max_consecutive_nights ?? 3) : 3;
+  document.getElementById('ct-night').checked     = ct ? ct.night_shift_allowed : true;
   document.getElementById('form-errors').classList.add('d-none');
   document.getElementById('form-card').classList.remove('d-none');
   document.getElementById('ct-name').focus();
@@ -135,10 +143,11 @@ function editContractType(id) {
 
 async function saveContractType() {
   const payload = {
-    name:                document.getElementById('ct-name').value.trim(),
-    max_hours_per_week:  parseInt(document.getElementById('ct-max-hours').value),
-    leave_days_per_year: parseInt(document.getElementById('ct-leave-days').value),
-    night_shift_allowed: document.getElementById('ct-night').checked,
+    name:                    document.getElementById('ct-name').value.trim(),
+    max_hours_per_week:      parseInt(document.getElementById('ct-max-hours').value),
+    leave_days_per_year:     parseInt(document.getElementById('ct-leave-days').value),
+    max_consecutive_nights:  parseInt(document.getElementById('ct-max-nights').value) || 3,
+    night_shift_allowed:     document.getElementById('ct-night').checked,
   };
   if (!payload.name) { showToast('Le nom est requis.', 'warning'); return; }
 

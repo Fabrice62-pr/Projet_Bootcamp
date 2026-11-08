@@ -9,5 +9,11 @@ class AbsenceTypeViewSet(viewsets.ModelViewSet):
 
 
 class AbsenceViewSet(viewsets.ModelViewSet):
-    queryset = Absence.objects.select_related('staff', 'absence_type').all()
     serializer_class = AbsenceSerializer
+
+    def get_queryset(self):
+        qs = Absence.objects.select_related('staff', 'absence_type').all()
+        staff_id = self.request.query_params.get('staff')
+        if staff_id:
+            qs = qs.filter(staff_id=staff_id)
+        return qs

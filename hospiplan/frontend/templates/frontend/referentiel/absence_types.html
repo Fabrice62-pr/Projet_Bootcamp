@@ -1,0 +1,160 @@
+{% extends "frontend/base.html" %}
+{% block title %}Types d'absence — HospiPlan{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="page-title">
+    <h1><i class="bi bi-tag me-2"></i>Types d'absence</h1>
+    <p>Définir les catégories d'absence (maladie, congé, accident de travail…)</p>
+  </div>
+  <button class="btn btn-primary" onclick="openForm()">
+    <i class="bi bi-plus-lg me-1"></i>Nouveau type
+  </button>
+</div>
+
+<!-- Formulaire inline -->
+<div id="form-card" class="card mb-3 d-none">
+  <div class="card-header fw-semibold" id="form-title">Nouveau type d'absence</div>
+  <div class="card-body">
+    <div id="form-errors" class="alert alert-danger d-none mb-3"></div>
+    <div class="row g-3 align-items-end">
+      <div class="col-md-5">
+        <label class="form-label fw-semibold">Nom <span class="text-danger">*</span></label>
+        <input type="text" id="at-name" class="form-control" placeholder="ex: Maladie, Congé annuel, AT…">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Impact sur les quotas de congés</label>
+        <div class="form-check mt-2">
+          <input class="form-check-input" type="checkbox" id="at-impacts-quota">
+          <label class="form-check-label" for="at-impacts-quota">Décompte des jours de congé</label>
+        </div>
+      </div>
+      <div class="col-md-3 d-flex gap-2">
+        <button class="btn btn-primary flex-fill" onclick="saveType()">
+          <i class="bi bi-check-lg me-1"></i>Enregistrer
+        </button>
+        <button class="btn btn-outline-secondary" onclick="closeForm()">Annuler</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tableau -->
+<div class="card">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span class="fw-semibold">Types d'absence enregistrés</span>
+    <span class="badge bg-secondary" id="count-badge">0</span>
+  </div>
+  <div class="card-body p-0">
+    <div id="empty-state" class="text-center py-5 text-muted d-none">
+      <i class="bi bi-tag fs-1 d-block mb-2"></i>
+      Aucun type d'absence. Commencez par en créer un.
+    </div>
+    <table class="table table-hover mb-0" id="types-table">
+      <thead class="table-light">
+        <tr>
+          <th>Nom</th>
+          <th class="text-center">Impact quotas</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="types-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const API = '/api/absence-types/';
+let editId = null;
+
+async function load() {
+  const data = await apiFetch(API);
+  const tbody = document.getElementById('types-body');
+  const empty = document.getElementById('empty-state');
+  const table = document.getElementById('types-table');
+  document.getElementById('count-badge').textContent = data.length;
+
+  if (!data.length) {
+    empty.classList.remove('d-none');
+    table.classList.add('d-none');
+    return;
+  }
+  empty.classList.add('d-none');
+  table.classList.remove('d-none');
+
+  tbody.innerHTML = data.map(t => `
+    <tr>
+      <td class="fw-semibold">${t.name}</td>
+      <td class="text-center">
+        ${t.impacts_quota
+          ? '<span class="badge bg-warning text-dark"><i class="bi bi-check-lg me-1"></i>Oui</span>'
+          : '<span class="badge bg-light text-secondary">Non</span>'}
+      </td>
+      <td class="text-end">
+        <button class="btn btn-sm btn-outline-primary me-1" onclick="editType(${t.id})">
+          <i class="bi bi-pencil"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteType(${t.id}, '${t.name.replace(/'/g,"\\'")}')">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openForm(id = null) {
+  editId = id;
+  document.getElementById('form-card').classList.remove('d-none');
+  document.getElementById('form-errors').classList.add('d-none');
+  if (!id) {
+    document.getElementById('form-title').textContent = "Nouveau type d'absence";
+    document.getElementById('at-name').value = '';
+    document.getElementById('at-impacts-quota').checked = false;
+  }
+  document.getElementById('at-name').focus();
+}
+
+function closeForm() {
+  editId = null;
+  document.getElementById('form-card').classList.add('d-none');
+}
+
+async function editType(id) {
+  const t = await apiFetch(`${API}${id}/`);
+  openForm(id);
+  document.getElementById('form-title').textContent = "Modifier le type d'absence";
+  document.getElementById('at-name').value = t.name;
+  document.getElementById('at-impacts-quota').checked = t.impacts_quota;
+}
+
+async function saveType() {
+  const name = document.getElementById('at-name').value.trim();
+  const errBox = document.getElementById('form-errors');
+
+  if (!name) {
+    errBox.textContent = 'Le nom est obligatoire.';
+    errBox.classList.remove('d-none');
+    return;
+  }
+
+  const payload = {
+    name,
+    impacts_quota: document.getElementById('at-impacts-quota').checked,
+  };
+
+  const url = editId ? `${API}${editId}/` : API;
+  const method = editId ? 'PUT' : 'POST';
+  await apiFetch(url, { method, body: JSON.stringify(payload) });
+  closeForm();
+  load();
+}
+
+async function deleteType(id, name) {
+  if (!confirm(`Supprimer le type « ${name} » ?`)) return;
+  await apiFetch(`${API}${id}/`, { method: 'DELETE' });
+  load();
+}
+
+load();
+</script>
+{% endblock %}

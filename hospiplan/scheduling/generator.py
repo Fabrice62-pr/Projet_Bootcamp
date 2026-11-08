@@ -1,0 +1,540 @@
+"""
+generator.py
+Génération automatique d'un planning hebdomadaire admissible.
+
+Phase 1 : heuristique gloutonne — construit un planning légal en affectant
+          les créneaux du plus contraint au moins contraint.
+Phase 2 : recherche locale (swap) — améliore le score des contraintes molles
+          sans jamais violer une contrainte dure.
+
+Toutes les données sont pré-chargées en mémoire avant la boucle principale
+pour minimiser les requêtes SQL (structure de 3 à 20 soignants → synchrone).
+"""
+
+import random
+import statistics
+from datetime import date, timedelta
+from django.db.models import Q
+
+
+# ── Poids des contraintes molles ──────────────────────────────────────────────
+WEIGHTS = {
+    'consecutive_nights': 10,
+    'preference':          8,
+    'workload':            6,
+    'service_change':      4,
+    'weekend_imbalance':   5,
+    'unfamiliar_service':  3,
+    'care_continuity':     2,
+}
+
+MAX_LOCAL_SEARCH = 300
+
+FRENCH_DAYS = {
+    'lundi': 0, 'mardi': 1, 'mercredi': 2,
+    'jeudi': 3, 'vendredi': 4, 'samedi': 5, 'dimanche': 6,
+}
+
+
+# ── État du brouillon (in-memory) ─────────────────────────────────────────────
+
+class DraftState:
+    def __init__(self):
+        self.entries = []  # list of {'staff': Staff, 'shift': Shift}
+
+    def add(self, staff, shift):
+        self.entries.append({'staff': staff, 'shift': shift})
+
+    def remove(self, staff, shift):
+        for i, e in enumerate(self.entries):
+            if e['staff'].id == staff.id and e['shift'].id == shift.id:
+                self.entries.pop(i)
+                return
+
+    def staff_shifts(self, staff_id):
+        return [e['shift'] for e in self.entries if e['staff'].id == staff_id]
+
+    def shift_count(self, shift_id):
+        return sum(1 for e in self.entries if e['shift'].id == shift_id)
+
+    def staff_week_shifts(self, staff_id, week_start, week_end):
+        return [
+            e['shift'] for e in self.entries
+            if e['staff'].id == staff_id
+            and week_start <= e['shift'].start_datetime.date() <= week_end
+        ]
+
+
+# ── Point d'entrée principal ──────────────────────────────────────────────────
+
+def generate_planning(week_start: date):
+    """
+    Génère un brouillon de planning pour la semaine commençant le lundi week_start.
+    Retourne (PlanningSession, list[shift_id non pourvus]).
+    """
+    week_end = week_start + timedelta(days=6)
+
+    ctx = _load_context(week_start, week_end)
+
+    shifts_sorted = _sort_by_difficulty(ctx['shifts'], ctx)
+
+    state = DraftState()
+    unpaved = []
+
+    # Phase 1 : construction gloutonne
+    for shift in shifts_sorted:
+        eligible = [s for s in ctx['staff_list']
+                    if _check_hard_constraints(s, shift, state, ctx)]
+        if not eligible:
+            unpaved.append(shift.id)
+            continue
+        scored = [(s, _compute_penalty(s, shift, state, ctx)) for s in eligible]
+        best = min(scored, key=lambda x: x[1])[0]
+        state.add(best, shift)
+
+    # Phase 2 : recherche locale
+    _local_search(state, ctx)
+
+    total_score, score_detail = _compute_total_score(state, ctx)
+
+    # Persistance
+    from .models import PlanningSession, DraftAssignment
+    session = PlanningSession.objects.create(
+        week_start=week_start,
+        week_end=week_end,
+        total_score=total_score,
+        score_detail=score_detail,
+        unpaved_shifts_count=len(unpaved),
+        status='draft',
+    )
+    DraftAssignment.objects.bulk_create([
+        DraftAssignment(
+            session=session,
+            staff=e['staff'],
+            shift=e['shift'],
+            penalty=round(_compute_penalty(e['staff'], e['shift'], state, ctx), 2),
+        )
+        for e in state.entries
+    ])
+
+    return session, unpaved
+
+
+# ── Pré-chargement du contexte ────────────────────────────────────────────────
+
+def _load_context(week_start, week_end):
+    from .models import Shift, ShiftAssignment, ShiftRequiredCertification
+    from staff.models import Staff, Contract, StaffCertification
+    from absences.models import Absence
+    from preferences.models import Preference
+
+    quarter_start = week_start - timedelta(weeks=13)
+    load_from = week_start - timedelta(days=14)
+
+    shifts = list(Shift.objects.filter(
+        start_datetime__date__range=[week_start, week_end]
+    ).select_related('shift_type', 'care_unit__service'))
+
+    staff_list = list(Staff.objects.filter(is_active=True))
+    staff_ids = [s.id for s in staff_list]
+
+    # Affectations récentes (2 semaines avant + semaine cible) pour les contraintes
+    existing = list(ShiftAssignment.objects.filter(
+        staff_id__in=staff_ids,
+        shift__end_datetime__date__gte=load_from,
+    ).select_related('shift__shift_type', 'shift__care_unit__service'))
+
+    assignments_by_staff = {}
+    assignments_by_shift = {}
+    for a in existing:
+        assignments_by_staff.setdefault(a.staff_id, []).append(a)
+        assignments_by_shift.setdefault(a.shift_id, []).append(a)
+
+    # Contrats actifs (un par soignant — le plus récent couvrant la semaine)
+    contracts = {}
+    for c in Contract.objects.filter(
+        staff_id__in=staff_ids,
+        start_date__lte=week_end,
+    ).filter(
+        Q(end_date__isnull=True) | Q(end_date__gte=week_start)
+    ).select_related('contract_type').order_by('staff_id', '-start_date'):
+        if c.staff_id not in contracts:
+            contracts[c.staff_id] = c
+
+    # Certifications des soignants
+    staff_certs = {}
+    for sc in StaffCertification.objects.filter(
+        staff_id__in=staff_ids
+    ).select_related('certification'):
+        staff_certs.setdefault(sc.staff_id, []).append(sc)
+
+    # Absences chevauchant la semaine
+    absences = {}
+    for ab in Absence.objects.filter(
+        staff_id__in=staff_ids,
+        start_date__lte=week_end,
+    ).filter(Q(expected_end_date__gte=week_start)):
+        absences.setdefault(ab.staff_id, []).append(ab)
+
+    # Préférences (dures + molles) couvrant la semaine
+    preferences = {}
+    for pref in Preference.objects.filter(
+        staff_id__in=staff_ids,
+        start_date__lte=week_end,
+        end_date__gte=week_start,
+    ):
+        preferences.setdefault(pref.staff_id, []).append(pref)
+
+    # Certifications requises par poste
+    shift_certs = {}
+    if shifts:
+        for src in ShiftRequiredCertification.objects.filter(
+            shift_id__in=[s.id for s in shifts]
+        ).select_related('certification'):
+            shift_certs.setdefault(src.shift_id, []).append(src)
+
+    # Historique de services travaillés (pour "service non familier")
+    service_history = {}
+    for row in ShiftAssignment.objects.filter(
+        staff_id__in=staff_ids
+    ).values('staff_id', 'shift__care_unit__service_id'):
+        sid = row['shift__care_unit__service_id']
+        if sid:
+            service_history.setdefault(row['staff_id'], set()).add(sid)
+
+    # Gardes de week-end sur le trimestre (pour équité)
+    weekend_counts = {}
+    for row in ShiftAssignment.objects.filter(
+        staff_id__in=staff_ids,
+        shift__start_datetime__date__gte=quarter_start,
+    ).values_list('staff_id', 'shift__start_datetime'):
+        if row[1].weekday() in (5, 6):
+            weekend_counts[row[0]] = weekend_counts.get(row[0], 0) + 1
+
+    avg_weekend = (sum(weekend_counts.values()) / max(len(staff_list), 1)
+                   if weekend_counts else 0.0)
+
+    return {
+        'week_start': week_start,
+        'week_end': week_end,
+        'shifts': shifts,
+        'staff_list': staff_list,
+        'existing': existing,
+        'assignments_by_staff': assignments_by_staff,
+        'assignments_by_shift': assignments_by_shift,
+        'contracts': contracts,
+        'staff_certs': staff_certs,
+        'absences': absences,
+        'preferences': preferences,
+        'shift_certs': shift_certs,
+        'service_history': service_history,
+        'weekend_counts': weekend_counts,
+        'avg_weekend': avg_weekend,
+    }
+
+
+# ── Tri par difficulté ────────────────────────────────────────────────────────
+
+def _sort_by_difficulty(shifts, ctx):
+    """Nuits en premier, puis par heure de début (les plus tôt = plus contraints)."""
+    return sorted(shifts, key=lambda s: (
+        not s.shift_type.is_night_shift,
+        s.start_datetime,
+    ))
+
+
+# ── Vérification des 8 contraintes dures (in-memory) ─────────────────────────
+
+def _check_hard_constraints(staff, shift, state, ctx):
+    return (
+        _hc_no_overlap(staff, shift, state, ctx) and
+        _hc_certifications(staff, shift, ctx) and
+        _hc_rest_after_night(staff, shift, state, ctx) and
+        _hc_max_staff(shift, state, ctx) and
+        _hc_contract_allows(staff, shift, ctx) and
+        _hc_no_absence(staff, shift, ctx) and
+        _hc_weekly_hours(staff, shift, state, ctx) and
+        _hc_hard_preferences(staff, shift, ctx)
+    )
+
+
+def _hc_no_overlap(staff, shift, state, ctx):
+    all_staff_shifts = (
+        [a.shift for a in ctx['assignments_by_staff'].get(staff.id, [])] +
+        state.staff_shifts(staff.id)
+    )
+    for s in all_staff_shifts:
+        if s.id != shift.id:
+            if s.start_datetime < shift.end_datetime and s.end_datetime > shift.start_datetime:
+                return False
+    return True
+
+
+def _hc_certifications(staff, shift, ctx):
+    shift_date = shift.start_datetime.date()
+    for req in ctx['shift_certs'].get(shift.id, []):
+        has = any(
+            sc.certification_id == req.certification_id
+            and sc.obtained_date <= shift_date
+            and sc.expiration_date >= shift_date
+            for sc in ctx['staff_certs'].get(staff.id, [])
+        )
+        if not has:
+            return False
+    return True
+
+
+def _hc_rest_after_night(staff, shift, state, ctx):
+    candidates = []
+    for a in ctx['assignments_by_staff'].get(staff.id, []):
+        if a.shift.shift_type.requires_rest_after and a.shift.end_datetime <= shift.start_datetime:
+            candidates.append(a.shift)
+    for s in state.staff_shifts(staff.id):
+        if s.shift_type.requires_rest_after and s.end_datetime <= shift.start_datetime:
+            candidates.append(s)
+    if not candidates:
+        return True
+    last = max(candidates, key=lambda s: s.end_datetime)
+    gap = shift.start_datetime - last.end_datetime
+    return gap >= timedelta(hours=last.shift_type.rest_duration_hours)
+
+
+def _hc_max_staff(shift, state, ctx):
+    existing_count = len(ctx['assignments_by_shift'].get(shift.id, []))
+    return (existing_count + state.shift_count(shift.id)) < shift.max_staff
+
+
+def _hc_contract_allows(staff, shift, ctx):
+    contract = ctx['contracts'].get(staff.id)
+    if not contract:
+        return False
+    shift_date = shift.start_datetime.date()
+    if contract.start_date > shift_date:
+        return False
+    if contract.end_date and contract.end_date < shift_date:
+        return False
+    if shift.shift_type.is_night_shift and not contract.contract_type.night_shift_allowed:
+        return False
+    return True
+
+
+def _hc_no_absence(staff, shift, ctx):
+    shift_date = shift.start_datetime.date()
+    for ab in ctx['absences'].get(staff.id, []):
+        if ab.start_date <= shift_date:
+            end = ab.actual_end_date or ab.expected_end_date
+            if end >= shift_date:
+                return False
+    return True
+
+
+def _hc_weekly_hours(staff, shift, state, ctx):
+    contract = ctx['contracts'].get(staff.id)
+    if not contract:
+        return True
+    shift_date = shift.start_datetime.date()
+    wk_start = shift_date - timedelta(days=shift_date.weekday())
+    wk_end = wk_start + timedelta(days=6)
+    max_h = contract.contract_type.max_hours_per_week
+
+    existing_h = sum(
+        a.shift.shift_type.duration_hours
+        for a in ctx['assignments_by_staff'].get(staff.id, [])
+        if wk_start <= a.shift.start_datetime.date() <= wk_end
+    )
+    draft_h = sum(
+        s.shift_type.duration_hours
+        for s in state.staff_week_shifts(staff.id, wk_start, wk_end)
+    )
+    return (existing_h + draft_h + shift.shift_type.duration_hours) <= max_h
+
+
+def _hc_hard_preferences(staff, shift, ctx):
+    shift_date = shift.start_datetime.date()
+    shift_wd = shift.start_datetime.weekday()
+    for pref in ctx['preferences'].get(staff.id, []):
+        if not pref.is_hard_constraint:
+            continue
+        if not (pref.start_date <= shift_date <= pref.end_date):
+            continue
+        if pref.type == 'indisponibilite':
+            desc = pref.description.lower()
+            for fr_day, wd in FRENCH_DAYS.items():
+                if fr_day in desc and shift_wd == wd:
+                    return False
+    return True
+
+
+# ── Calcul de la pénalité totale (contraintes molles) ────────────────────────
+
+def _compute_penalty(staff, shift, state, ctx):
+    return (
+        _sc_consecutive_nights(staff, shift, state, ctx) * WEIGHTS['consecutive_nights'] +
+        _sc_preference(staff, shift, ctx)                * WEIGHTS['preference'] +
+        _sc_workload(staff, state, ctx)                  * WEIGHTS['workload'] +
+        _sc_service_change(staff, shift, state, ctx)     * WEIGHTS['service_change'] +
+        _sc_weekend_imbalance(staff, shift, ctx)         * WEIGHTS['weekend_imbalance'] +
+        _sc_unfamiliar_service(staff, shift, ctx)        * WEIGHTS['unfamiliar_service'] +
+        _sc_care_continuity(staff, shift, state, ctx)    * WEIGHTS['care_continuity']
+    )
+
+
+def _sc_consecutive_nights(staff, shift, state, ctx):
+    if not shift.shift_type.is_night_shift:
+        return 0.0
+    contract = ctx['contracts'].get(staff.id)
+    max_nights = contract.contract_type.max_consecutive_nights if contract else 3
+
+    shift_date = shift.start_datetime.date()
+    night_dates = set()
+    for a in ctx['assignments_by_staff'].get(staff.id, []):
+        if a.shift.shift_type.is_night_shift:
+            night_dates.add(a.shift.start_datetime.date())
+    for s in state.staff_shifts(staff.id):
+        if s.shift_type.is_night_shift:
+            night_dates.add(s.start_datetime.date())
+    night_dates.add(shift_date)
+
+    consecutive = 0
+    check = shift_date
+    while check in night_dates:
+        consecutive += 1
+        check -= timedelta(days=1)
+    return float(max(0, consecutive - max_nights))
+
+
+def _sc_preference(staff, shift, ctx):
+    shift_date = shift.start_datetime.date()
+    shift_wd = shift.start_datetime.weekday()
+    penalty = 0.0
+    for pref in ctx['preferences'].get(staff.id, []):
+        if pref.is_hard_constraint:
+            continue
+        if not (pref.start_date <= shift_date <= pref.end_date):
+            continue
+        if pref.type == 'indisponibilite':
+            desc = pref.description.lower()
+            for fr_day, wd in FRENCH_DAYS.items():
+                if fr_day in desc and shift_wd == wd:
+                    penalty += 1.0
+    return penalty
+
+
+def _sc_workload(staff, state, ctx):
+    """Pénalise les soignants déjà beaucoup chargés cette semaine (brouillon)."""
+    week_shifts = state.staff_week_shifts(staff.id, ctx['week_start'], ctx['week_end'])
+    return float(len(week_shifts))
+
+
+def _sc_service_change(staff, shift, state, ctx):
+    ws, we = ctx['week_start'], ctx['week_end']
+    services = set()
+    for a in ctx['assignments_by_staff'].get(staff.id, []):
+        if ws <= a.shift.start_datetime.date() <= we:
+            services.add(a.shift.care_unit.service_id)
+    for s in state.staff_week_shifts(staff.id, ws, we):
+        services.add(s.care_unit.service_id)
+    services.add(shift.care_unit.service_id)
+    return float(max(0, len(services) - 1))
+
+
+def _sc_weekend_imbalance(staff, shift, ctx):
+    if shift.start_datetime.weekday() not in (5, 6):
+        return 0.0
+    count = ctx['weekend_counts'].get(staff.id, 0)
+    return float(max(0.0, count - ctx['avg_weekend']))
+
+
+def _sc_unfamiliar_service(staff, shift, ctx):
+    known = ctx['service_history'].get(staff.id, set())
+    return 0.0 if shift.care_unit.service_id in known else 1.0
+
+
+def _sc_care_continuity(staff, shift, state, ctx):
+    """Pénalise si quelqu'un d'autre couvrait cette unité hier."""
+    shift_date = shift.start_datetime.date()
+    prev_date = shift_date - timedelta(days=1)
+    cu_id = shift.care_unit.id
+
+    prev_ids = set()
+    for a in ctx['existing']:
+        if a.shift.care_unit_id == cu_id and a.shift.start_datetime.date() == prev_date:
+            prev_ids.add(a.staff_id)
+    for e in state.entries:
+        if e['shift'].care_unit_id == cu_id and e['shift'].start_datetime.date() == prev_date:
+            prev_ids.add(e['staff'].id)
+
+    if not prev_ids:
+        return 0.0
+    return 0.0 if staff.id in prev_ids else 1.0
+
+
+# ── Score global (pour rapport final) ────────────────────────────────────────
+
+def _compute_total_score(state, ctx):
+    detail = {k: 0.0 for k in WEIGHTS}
+    ws, we = ctx['week_start'], ctx['week_end']
+
+    for e in state.entries:
+        staff, shift = e['staff'], e['shift']
+        detail['consecutive_nights'] += _sc_consecutive_nights(staff, shift, state, ctx) * WEIGHTS['consecutive_nights']
+        detail['preference']          += _sc_preference(staff, shift, ctx)                * WEIGHTS['preference']
+        detail['service_change']      += _sc_service_change(staff, shift, state, ctx)     * WEIGHTS['service_change']
+        detail['weekend_imbalance']   += _sc_weekend_imbalance(staff, shift, ctx)         * WEIGHTS['weekend_imbalance']
+        detail['unfamiliar_service']  += _sc_unfamiliar_service(staff, shift, ctx)        * WEIGHTS['unfamiliar_service']
+        detail['care_continuity']     += _sc_care_continuity(staff, shift, state, ctx)    * WEIGHTS['care_continuity']
+
+    # Déséquilibre de charge : écart-type du nombre de gardes par soignant
+    counts = {}
+    for e in state.entries:
+        if ws <= e['shift'].start_datetime.date() <= we:
+            counts[e['staff'].id] = counts.get(e['staff'].id, 0) + 1
+    if len(counts) > 1:
+        detail['workload'] = statistics.stdev(counts.values()) * WEIGHTS['workload']
+
+    total = sum(detail.values())
+    return round(total, 2), {k: round(v, 2) for k, v in detail.items()}
+
+
+# ── Recherche locale (swap) ───────────────────────────────────────────────────
+
+def _local_search(state, ctx):
+    for _ in range(MAX_LOCAL_SEARCH):
+        if len(state.entries) < 2:
+            break
+
+        e1, e2 = random.sample(state.entries, 2)
+        s1, sh1 = e1['staff'], e1['shift']
+        s2, sh2 = e2['staff'], e2['shift']
+
+        if s1.id == s2.id or sh1.id == sh2.id:
+            continue
+
+        p_before = (
+            _compute_penalty(s1, sh1, state, ctx) +
+            _compute_penalty(s2, sh2, state, ctx)
+        )
+
+        state.remove(s1, sh1)
+        state.remove(s2, sh2)
+
+        feasible = (
+            _check_hard_constraints(s1, sh2, state, ctx) and
+            _check_hard_constraints(s2, sh1, state, ctx)
+        )
+
+        if feasible:
+            state.add(s1, sh2)
+            state.add(s2, sh1)
+            p_after = (
+                _compute_penalty(s1, sh2, state, ctx) +
+                _compute_penalty(s2, sh1, state, ctx)
+            )
+            if p_after >= p_before:
+                state.remove(s1, sh2)
+                state.remove(s2, sh1)
+                state.add(s1, sh1)
+                state.add(s2, sh2)
+        else:
+            state.add(s1, sh1)
+            state.add(s2, sh2)

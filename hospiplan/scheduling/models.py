@@ -47,3 +47,32 @@ class ShiftAssignment(models.Model):
 
     def __str__(self):
         return f"{self.staff} -> {self.shift}"
+
+
+class PlanningSession(models.Model):
+    STATUS_CHOICES = [('draft', 'Brouillon'), ('published', 'Publié')]
+    week_start = models.DateField()
+    week_end = models.DateField()
+    generated_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    total_score = models.FloatField(default=0.0)
+    score_detail = models.JSONField(default=dict)
+    unpaved_shifts_count = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ['-generated_at']
+
+    def __str__(self):
+        return f"Planning {self.week_start} → {self.week_end} [{self.status}]"
+
+
+class DraftAssignment(models.Model):
+    session = models.ForeignKey(
+        PlanningSession, on_delete=models.CASCADE, related_name='draft_assignments'
+    )
+    staff = models.ForeignKey('staff.Staff', on_delete=models.CASCADE)
+    shift = models.ForeignKey(Shift, on_delete=models.CASCADE)
+    penalty = models.FloatField(default=0.0)
+
+    class Meta:
+        unique_together = ('session', 'staff', 'shift')

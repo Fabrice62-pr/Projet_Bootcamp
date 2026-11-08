@@ -4,6 +4,12 @@ from . import views
 app_name = 'frontend'
 
 urlpatterns = [
+    # Authentification
+    path('login/', views.HospiLoginView.as_view(), name='login'),
+    path('logout/', views.HospiLogoutView.as_view(), name='logout'),
+    # Deuxieme etape du lien de connexion conversationnel.
+    path('login/confirm/', views.chat_link_confirm, name='chat_link_confirm'),
+
     # Dashboard
     path('', views.dashboard, name='dashboard'),
 
@@ -27,4 +33,8 @@ urlpatterns = [
     path('referentiel/services/', views.ref_services, name='ref_services'),
     path('referentiel/shift-types/', views.ref_shift_types, name='ref_shift_types'),
     path('referentiel/contract-types/', views.ref_contract_types, name='ref_contract_types'),
+
+    # Absences
+    path('absences/', views.absences_list, name='absences_list'),
+    path('referentiel/absence-types/', views.ref_absence_types, name='ref_absence_types'),
 ]

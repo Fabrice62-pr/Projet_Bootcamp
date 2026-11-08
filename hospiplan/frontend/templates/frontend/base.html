@@ -90,6 +90,34 @@
       display: flex; align-items: center; gap: .5rem;
     }
 
+    /* -- Bloc utilisateur (sidebar) ------------------- */
+    .sidebar-user {
+      padding: .9rem 1rem;
+      border-top: 1px solid rgba(255,255,255,.08);
+      display: flex; align-items: center; gap: .7rem;
+    }
+    .sidebar-user .avatar {
+      width: 36px; height: 36px; flex: 0 0 36px;
+      border-radius: 50%; background: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 700; font-size: .8rem;
+    }
+    .sidebar-user .user-meta { min-width: 0; flex: 1 1 auto; }
+    .sidebar-user .user-name {
+      color: #fff; font-size: .82rem; font-weight: 600;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .sidebar-user .user-role {
+      color: rgba(176,190,197,.7); font-size: .68rem;
+      text-transform: uppercase; letter-spacing: .5px;
+    }
+    .sidebar-user .btn-logout {
+      border: 0; background: none; color: var(--sidebar-text);
+      padding: .35rem .45rem; border-radius: 6px; line-height: 1;
+      cursor: pointer; transition: background .15s, color .15s;
+    }
+    .sidebar-user .btn-logout:hover { background: rgba(220,53,69,.2); color: #ff8b95; }
+
     /* ── Topbar ─────────────────────────────────────── */
     .topbar {
       display: flex; align-items: center; justify-content: space-between;
@@ -194,6 +222,12 @@
         <i class="bi bi-people"></i> Soignants
       </a>
     </li>
+    <li>
+      <a href="{% url 'frontend:absences_list' %}"
+         class="{% if 'absences' in request.resolver_match.url_name %}active{% endif %}">
+        <i class="bi bi-calendar-x"></i> Absences
+      </a>
+    </li>
   </ul>
 
   <span class="sidebar-section">Planning</span>
@@ -238,11 +272,32 @@
         <i class="bi bi-file-earmark-text"></i> Types de contrat
       </a>
     </li>
+    <li>
+      <a href="{% url 'frontend:ref_absence_types' %}"
+         class="{% if 'ref_absence_types' in request.resolver_match.url_name %}active{% endif %}">
+        <i class="bi bi-tag"></i> Types d'absence
+      </a>
+    </li>
   </ul>
 
   <div class="sidebar-footer">
     <i class="bi bi-shield-check text-success"></i>
     8 contraintes actives
+  </div>
+
+  <!-- Utilisateur connecte -->
+  <div class="sidebar-user">
+    <div class="avatar">{{ user.get_username|slice:":2"|upper }}</div>
+    <div class="user-meta">
+      <div class="user-name">{{ user.get_full_name|default:user.get_username }}</div>
+      <div class="user-role">{% if user.is_superuser %}Administrateur{% elif user.is_staff %}Gestionnaire{% else %}Utilisateur{% endif %}</div>
+    </div>
+    <form method="post" action="{% url 'frontend:logout' %}" class="m-0">
+      {% csrf_token %}
+      <button type="submit" class="btn-logout" title="Se deconnecter">
+        <i class="bi bi-box-arrow-right"></i>
+      </button>
+    </form>
   </div>
 </nav>
 
@@ -277,6 +332,14 @@
     const res = await fetch(url, { ...defaults, ...options,
       headers: { ...defaults.headers, ...(options.headers || {}) }
     });
+
+    // Session expiree ou absente : retour a la page de connexion.
+    if (res.status === 401 || res.status === 403) {
+      const login = '{% url "frontend:login" %}';
+      window.location.href = login + '?next=' + encodeURIComponent(window.location.pathname);
+      return res;
+    }
+
     return res;
   }
 

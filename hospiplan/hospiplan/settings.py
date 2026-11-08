@@ -10,20 +10,51 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def _load_env_file(path: Path) -> None:
+    """
+    Charge les lignes CLE=valeur d'un fichier .env dans os.environ.
+
+    Les secrets vivent dans ce fichier, exclu du depot par .gitignore.
+    Une variable deja definie dans l'environnement garde la priorite.
+    """
+    if not path.is_file():
+        return
+    for raw in path.read_text(encoding='utf-8').splitlines():
+        line = raw.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        key = key.strip().removeprefix('export ').strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in '"\'':
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+
+
+# Le .env est a la racine du depot (a cote de README.md).
+_load_env_file(BASE_DIR.parent / '.env')
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-=o_k!w%+0i__7yj6i@phr%0%-n@ghd_-#2onaea-u14!wvn@=8'
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    raise RuntimeError(
+        "DJANGO_SECRET_KEY manquant : copiez .env.example en .env "
+        "a la racine du projet et renseignez-le."
+    )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('1', 'true', 'yes')
 
 ALLOWED_HOSTS = []
 
@@ -39,6 +70,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # DRF
     'rest_framework',
+    'rest_framework.authtoken',
     # Apps metier
     'staff',
     'scheduling',
@@ -51,6 +83,19 @@ INSTALLED_APPS = [
 ]
 
 REST_FRAMEWORK = {
+    # L'API n'est accessible qu'a un appelant authentifie : session Django
+    # pour le frontend, jeton porteur pour les appels serveur a serveur
+    # (connecteur MCP), qui n'ont pas de cookie de session.
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.TokenAuthentication',
+        # Meme jeton sous le prefixe 'Bearer', celui qu'emploie la
+        # plateforme conversationnelle pour agir au nom de l'utilisateur.
+        'frontend.authentication.BearerTokenAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer',
@@ -95,13 +140,31 @@ WSGI_APPLICATION = 'hospiplan.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'hospiplandb',
-        'USER': 'postgres',
-        'PASSWORD': '1234',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': os.environ.get('DB_NAME', 'hospiplandb'),
+        'USER': os.environ.get('DB_USER', 'postgres'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DB_PORT', '5432'),
     }
 }
+
+# Authentification
+# https://docs.djangoproject.com/en/6.0/topics/auth/default/
+
+# Lien de connexion des conversations (plateforme MCP).
+# Le secret est affiche une seule fois a la configuration du provider
+# dans le dashboard : hors du code, donc, et hors du depot.
+MCP_BASE_URL = os.environ.get('MCP_BASE_URL', 'http://localhost:4000')
+MCP_VERIFY_SECRET = os.environ.get('MCP_VERIFY_SECRET', '')
+
+LOGIN_URL = 'frontend:login'
+LOGIN_REDIRECT_URL = 'frontend:dashboard'
+LOGOUT_REDIRECT_URL = 'frontend:login'
+
+# Deconnexion automatique apres 8 h d'inactivite (une garde).
+SESSION_COOKIE_AGE = 8 * 60 * 60
+SESSION_SAVE_EVERY_REQUEST = True
+
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators

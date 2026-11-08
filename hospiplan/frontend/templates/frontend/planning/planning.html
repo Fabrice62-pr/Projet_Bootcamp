@@ -27,12 +27,37 @@
   .shift-cell.night  { background: #1a2744; color: #b0bec5; border-color: #6c757d; }
   .shift-cell.absent { background: #fff3cd; border-color: #f0ad4e; color: #856404; }
   .shift-cell.empty  { background: #f8d7da; border-color: #dc3545; color: #721c24; }
+  /* Cellules brouillon */
+  .shift-cell.draft  {
+    background: #fff8e1; border-color: #ff9800; color: #5d4037;
+    border-style: dashed; opacity: .9;
+  }
+  .shift-cell.draft.night { background: #37474f; border-color: #ff9800; color: #ffcc80; }
   .planning-table td.today-col { background: #f0f7ff; }
   .planning-table tbody tr:hover td { background: #e8f4fd !important; }
   .planning-table tbody tr:hover td:first-child { background: #d0e8f8 !important; }
 
   .view-toggle .btn { font-size: .85rem; }
   .week-nav { gap: .5rem; }
+
+  /* Panneau génération */
+  .score-pill {
+    display: inline-flex; align-items: center; gap: .35rem;
+    padding: .2rem .65rem; border-radius: 20px;
+    font-size: .78rem; font-weight: 600;
+  }
+  .score-pill.good    { background: #d4edda; color: #155724; }
+  .score-pill.medium  { background: #fff3cd; color: #856404; }
+  .score-pill.bad     { background: #f8d7da; color: #721c24; }
+
+  .soft-bar {
+    display: flex; align-items: center; gap: .5rem;
+    font-size: .78rem; margin-bottom: .3rem;
+  }
+  .soft-bar .label { width: 180px; flex-shrink: 0; color: #6c757d; }
+  .soft-bar .bar-wrap { flex: 1; background: #e9ecef; border-radius: 4px; height: 6px; }
+  .soft-bar .bar-fill { height: 6px; border-radius: 4px; background: #2e86c1; }
+  .soft-bar .val { width: 40px; text-align: right; font-weight: 600; }
 </style>
 {% endblock %}
 
@@ -44,12 +69,90 @@
   </div>
 </div>
 
-<!-- Barre de contrôle -->
+<!-- ══ Panneau Génération automatique ══════════════════════════════════════ -->
+<div class="card mb-3" id="gen-panel">
+  <div class="card-header d-flex justify-content-between align-items-center"
+       style="cursor:pointer;" onclick="toggleGenPanel()">
+    <span><i class="bi bi-magic me-2"></i>Génération automatique du planning</span>
+    <i class="bi bi-chevron-down" id="gen-chevron"></i>
+  </div>
+  <div id="gen-body" class="card-body" style="display:none;">
+
+    <!-- État initial : bouton générer -->
+    <div id="gen-idle">
+      <p class="text-muted small mb-3">
+        Lance la génération pour la semaine affichée dans la grille ci-dessous.
+        Le système construit un brouillon admissible (contraintes dures respectées)
+        et minimise les contraintes molles via une heuristique gloutonne + recherche locale.
+      </p>
+      <button class="btn btn-primary" onclick="generatePlanning()" id="gen-btn">
+        <i class="bi bi-magic me-2"></i>Générer le planning de la semaine
+      </button>
+    </div>
+
+    <!-- Résultats du brouillon -->
+    <div id="gen-result" class="d-none">
+
+      <!-- Bannière statut -->
+      <div class="alert alert-warning d-flex align-items-center gap-2 mb-3" id="gen-banner">
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        <span>Brouillon généré — <strong>non publié</strong>. Vérifiez le planning puis cliquez sur "Publier".</span>
+      </div>
+
+      <div class="row g-3 mb-3">
+
+        <!-- Score global -->
+        <div class="col-md-4">
+          <div class="card h-100">
+            <div class="card-body text-center">
+              <div class="text-muted small mb-1">Score global (pénalités)</div>
+              <div id="gen-score-badge" style="font-size:2rem;font-weight:700;"></div>
+              <div class="text-muted small">(plus bas = meilleur)</div>
+              <div class="mt-2">
+                <span id="gen-assigned-badge" class="badge bg-success me-1"></span>
+                <span id="gen-unpaved-badge" class="badge bg-danger"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Détail contraintes molles -->
+        <div class="col-md-8">
+          <div class="card h-100">
+            <div class="card-header" style="font-size:.85rem;">Détail des pénalités</div>
+            <div class="card-body" id="gen-score-detail"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Créneaux non pourvus -->
+      <div id="gen-unpaved-section" class="alert alert-danger d-none mb-3">
+        <i class="bi bi-exclamation-triangle me-2"></i>
+        <strong id="gen-unpaved-count"></strong> créneau(x) non pourvu(s) — aucun soignant éligible n'a pu être trouvé.
+        <div class="mt-1 small text-muted">Ces créneaux resteront vides après publication. Vérifiez les contrats et certifications.</div>
+      </div>
+
+      <!-- Actions -->
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-success" onclick="publishPlanning()">
+          <i class="bi bi-check-circle me-2"></i>Publier le planning
+        </button>
+        <button class="btn btn-outline-danger" onclick="discardDraft()">
+          <i class="bi bi-x-circle me-2"></i>Annuler le brouillon
+        </button>
+        <button class="btn btn-outline-secondary" onclick="generatePlanning()">
+          <i class="bi bi-arrow-clockwise me-2"></i>Régénérer
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══ Barre de contrôle ═══════════════════════════════════════════════════ -->
 <div class="card mb-3">
   <div class="card-body py-2">
     <div class="d-flex flex-wrap align-items-center gap-3">
-
-      <!-- Navigation semaine -->
       <div class="d-flex week-nav align-items-center">
         <button class="btn btn-sm btn-outline-secondary" onclick="changeWeek(-1)">
           <i class="bi bi-chevron-left"></i>
@@ -59,8 +162,6 @@
           <i class="bi bi-chevron-right"></i>
         </button>
       </div>
-
-      <!-- Toggle vue -->
       <div class="view-toggle btn-group" role="group">
         <button type="button" class="btn btn-sm btn-primary active" id="btn-view-staff" onclick="setView('staff')">
           <i class="bi bi-people me-1"></i>Par soignant
@@ -69,20 +170,17 @@
           <i class="bi bi-hospital me-1"></i>Par service
         </button>
       </div>
-
-      <!-- Filtre service (vue service) -->
       <div id="service-filter-wrap" class="d-none">
         <select id="filter-service" class="form-select form-select-sm" onchange="renderPlanning()">
           <option value="">Tous les services</option>
         </select>
       </div>
-
       <div class="ms-auto text-muted small" id="planning-info"></div>
     </div>
   </div>
 </div>
 
-<!-- Grille planning -->
+<!-- ══ Grille planning ══════════════════════════════════════════════════════ -->
 <div class="card">
   <div class="card-body p-0 planning-grid">
     <table class="planning-table" id="planning-table">
@@ -100,6 +198,7 @@
 <div class="d-flex gap-3 mt-3 flex-wrap" style="font-size:.8rem;">
   <span><span class="shift-cell d-inline-block px-2">Garde de jour</span></span>
   <span><span class="shift-cell night d-inline-block px-2">Garde de nuit</span></span>
+  <span><span class="shift-cell draft d-inline-block px-2"><i class="bi bi-magic me-1"></i>Brouillon</span></span>
   <span><span class="shift-cell absent d-inline-block px-2">Absence</span></span>
   <span><span class="shift-cell empty d-inline-block px-2">Poste non couvert</span></span>
 </div>
@@ -107,9 +206,9 @@
 
 {% block extra_js %}
 <script>
-// ── État global ────────────────────────────────────────────────────────
+// ── État global ────────────────────────────────────────────────────────────
 let currentMonday = getMonday(new Date());
-let currentView   = 'staff';  // 'staff' | 'service'
+let currentView   = 'staff';
 
 let allStaff       = [];
 let allShifts      = [];
@@ -118,7 +217,12 @@ let allAbsences    = [];
 let allServices    = [];
 let allCareUnits   = [];
 
-// ── Helpers date ───────────────────────────────────────────────────────
+// Brouillon
+let draftSession     = null;   // objet PlanningSession
+let draftAssignments = [];     // liste de DraftAssignment
+let genPanelOpen     = false;
+
+// ── Helpers date ───────────────────────────────────────────────────────────
 function getMonday(d) {
   const copy = new Date(d);
   const day  = copy.getDay() || 7;
@@ -126,19 +230,11 @@ function getMonday(d) {
   copy.setDate(copy.getDate() - day + 1);
   return copy;
 }
-
-function addDays(d, n) {
-  const r = new Date(d);
-  r.setDate(r.getDate() + n);
-  return r;
-}
-
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 function toISO(d) { return d.toISOString().slice(0,10); }
-
 function fmtDay(d) {
   return d.toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short' });
 }
-
 function changeWeek(n) { currentMonday = addDays(currentMonday, n * 7); renderPlanning(); }
 function goToday()     { currentMonday = getMonday(new Date()); renderPlanning(); }
 function setView(v) {
@@ -153,7 +249,144 @@ function setView(v) {
   renderPlanning();
 }
 
-// ── Chargement données ─────────────────────────────────────────────────
+// ── Panneau génération ─────────────────────────────────────────────────────
+function toggleGenPanel() {
+  genPanelOpen = !genPanelOpen;
+  document.getElementById('gen-body').style.display = genPanelOpen ? '' : 'none';
+  document.getElementById('gen-chevron').className = genPanelOpen ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+}
+
+function scorePillClass(score) {
+  if (score < 20) return 'good';
+  if (score < 60) return 'medium';
+  return 'bad';
+}
+
+const SOFT_LABELS = {
+  consecutive_nights: 'Nuits consécutives',
+  preference:         'Préférences soignants',
+  workload:           'Équilibre de charge',
+  service_change:     'Changements de service',
+  weekend_imbalance:  'Équité week-ends',
+  unfamiliar_service: 'Services non familiers',
+  care_continuity:    'Continuité de soins',
+};
+
+function renderScoreDetail(detail) {
+  const total = Object.values(detail).reduce((a, b) => a + b, 0) || 1;
+  const box = document.getElementById('gen-score-detail');
+  box.innerHTML = Object.entries(detail).map(([k, v]) => {
+    const pct = Math.round((v / total) * 100);
+    return `
+      <div class="soft-bar">
+        <span class="label">${SOFT_LABELS[k] || k}</span>
+        <div class="bar-wrap"><div class="bar-fill" style="width:${pct}%"></div></div>
+        <span class="val">${v}</span>
+      </div>`;
+  }).join('');
+}
+
+function showDraftResult(session, unpavedIds) {
+  draftSession     = session;
+  draftAssignments = session.draft_assignments || [];
+
+  document.getElementById('gen-idle').classList.add('d-none');
+  document.getElementById('gen-result').classList.remove('d-none');
+
+  const cls = scorePillClass(session.total_score);
+  document.getElementById('gen-score-badge').innerHTML =
+    `<span class="score-pill ${cls}">${session.total_score}</span>`;
+
+  document.getElementById('gen-assigned-badge').textContent =
+    `${draftAssignments.length} affectation(s) générée(s)`;
+
+  const unpaved = unpavedIds ? unpavedIds.length : session.unpaved_shifts_count;
+  const unpavedBadge = document.getElementById('gen-unpaved-badge');
+  if (unpaved > 0) {
+    unpavedBadge.textContent = `${unpaved} non pourvue(s)`;
+    const sec = document.getElementById('gen-unpaved-section');
+    sec.classList.remove('d-none');
+    document.getElementById('gen-unpaved-count').textContent = unpaved;
+  } else {
+    unpavedBadge.textContent = 'Tous couverts';
+    unpavedBadge.className = 'badge bg-success';
+  }
+
+  renderScoreDetail(session.score_detail || {});
+  renderPlanning();
+}
+
+async function generatePlanning() {
+  const btn = document.getElementById('gen-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Génération en cours…'; }
+
+  const weekStart = toISO(currentMonday);
+  const res = await apiFetch('/api/plannings/generate/', {
+    method: 'POST',
+    body: JSON.stringify({ week_start: weekStart }),
+  });
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-magic me-2"></i>Générer le planning de la semaine'; }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    showToast(err.error || 'Erreur lors de la génération.', 'danger');
+    return;
+  }
+  const data = await res.json();
+  showDraftResult(data, data.unpaved_shift_ids || []);
+  showToast('Brouillon généré. Vérifiez et publiez.', 'warning');
+}
+
+async function publishPlanning() {
+  if (!draftSession) return;
+  if (!confirm('Publier ce planning ? Les affectations seront enregistrées définitivement.')) return;
+
+  loading(true);
+  const res = await apiFetch(`/api/plannings/${draftSession.id}/publish/`, { method: 'POST' });
+  loading(false);
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    showToast(err.error || 'Erreur lors de la publication.', 'danger');
+    return;
+  }
+  const data = await res.json();
+
+  if (data.errors && data.errors.length > 0) {
+    showToast(`Publié avec ${data.errors.length} erreur(s) — certaines affectations ont été ignorées.`, 'warning');
+  } else {
+    showToast(`Planning publié — ${data.created} affectation(s) créée(s).`);
+  }
+
+  draftSession     = null;
+  draftAssignments = [];
+  document.getElementById('gen-result').classList.add('d-none');
+  document.getElementById('gen-idle').classList.remove('d-none');
+  await loadAll();
+}
+
+async function discardDraft() {
+  if (!draftSession) return;
+  if (!confirmDelete('Annuler et supprimer ce brouillon ?')) return;
+
+  loading(true);
+  const res = await apiFetch(`/api/plannings/${draftSession.id}/`, { method: 'DELETE' });
+  loading(false);
+
+  if (res.status === 204 || res.ok) {
+    showToast('Brouillon supprimé.');
+    draftSession     = null;
+    draftAssignments = [];
+    document.getElementById('gen-result').classList.add('d-none');
+    document.getElementById('gen-idle').classList.remove('d-none');
+    renderPlanning();
+  } else {
+    showToast('Erreur lors de la suppression.', 'danger');
+  }
+}
+
+// ── Chargement données ─────────────────────────────────────────────────────
 async function loadAll() {
   const [staffRes, shiftRes, assRes, absRes, svcRes, cuRes] = await Promise.all([
     apiFetch('/api/staff/?format=json'),
@@ -163,7 +396,6 @@ async function loadAll() {
     apiFetch('/api/services/?format=json'),
     apiFetch('/api/care-units/?format=json'),
   ]);
-
   allStaff       = await staffRes.json().then(d => d.results || d);
   allShifts      = await shiftRes.json().then(d => d.results || d);
   allAssignments = await assRes.json().then(d => d.results || d);
@@ -171,7 +403,6 @@ async function loadAll() {
   allServices    = await svcRes.json().then(d => d.results || d);
   allCareUnits   = await cuRes.json().then(d => d.results || d);
 
-  // Remplir filtre service
   const sel = document.getElementById('filter-service');
   allServices.forEach(s => sel.insertAdjacentHTML('beforeend',
     `<option value="${s.id}">${s.name}</option>`));
@@ -179,17 +410,15 @@ async function loadAll() {
   renderPlanning();
 }
 
-// ── Rendu ──────────────────────────────────────────────────────────────
+// ── Rendu ──────────────────────────────────────────────────────────────────
 function renderPlanning() {
   const days = Array.from({length: 7}, (_, i) => addDays(currentMonday, i));
   const todayISO = toISO(new Date());
   const sunday = days[6];
 
-  // Libellé semaine
   document.getElementById('week-label').textContent =
     `Semaine du ${currentMonday.toLocaleDateString('fr-FR',{day:'2-digit',month:'long'})} au ${sunday.toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'})}`;
 
-  // En-tête
   const thead = document.getElementById('planning-thead');
   thead.innerHTML = `<tr>
     <th>${currentView === 'staff' ? 'Soignant' : 'Service / Unité'}</th>
@@ -207,59 +436,61 @@ function renderPlanning() {
 function renderByStaff(days, todayISO) {
   const tbody = document.getElementById('planning-tbody');
   const activeStaff = allStaff.filter(s => s.is_active);
-  document.getElementById('planning-info').textContent = `${activeStaff.length} soignant(s) actif(s)`;
+  document.getElementById('planning-info').textContent =
+    `${activeStaff.length} soignant(s) actif(s)${draftSession ? ' · 🟡 Brouillon actif' : ''}`;
 
-  // Index absences par staff+date
   const absenceIdx = {};
-  allAbsences.forEach(a => {
-    if (!absenceIdx[a.staff]) absenceIdx[a.staff] = [];
-    absenceIdx[a.staff].push(a);
-  });
+  allAbsences.forEach(a => { absenceIdx[a.staff] = absenceIdx[a.staff] || []; absenceIdx[a.staff].push(a); });
 
-  // Index assignments par staff
   const assIdx = {};
-  allAssignments.forEach(a => {
-    if (!assIdx[a.staff]) assIdx[a.staff] = [];
-    assIdx[a.staff].push(a);
-  });
+  allAssignments.forEach(a => { assIdx[a.staff] = assIdx[a.staff] || []; assIdx[a.staff].push(a); });
 
-  // Index shifts by id
   const shiftById = {};
   allShifts.forEach(s => { shiftById[s.id] = s; });
+
+  // Index brouillon par soignant
+  const draftIdx = {};
+  draftAssignments.forEach(da => { draftIdx[da.staff] = draftIdx[da.staff] || []; draftIdx[da.staff].push(da); });
 
   tbody.innerHTML = activeStaff.map(staff => {
     const cols = days.map(day => {
       const iso = toISO(day);
       const isToday = iso === todayISO;
 
-      // Absences ce jour ?
       const dayAbs = (absenceIdx[staff.id] || []).filter(a =>
         a.start_date <= iso &&
         (a.actual_end_date ? a.actual_end_date >= iso : a.expected_end_date >= iso)
       );
-
-      // Gardes ce jour ?
       const dayAss = (assIdx[staff.id] || []).filter(a => {
         const sh = shiftById[a.shift];
         return sh && sh.start_datetime && sh.start_datetime.slice(0,10) === iso;
       });
+      const dayDraft = (draftIdx[staff.id] || []).filter(da =>
+        da.shift_start && da.shift_start.slice(0,10) === iso
+      );
 
       let content = '';
       dayAbs.forEach(a => {
-        content += `<div class="shift-cell absent" title="${a.absence_type_name || 'Absence'}">
-          <i class="bi bi-person-dash me-1"></i>${a.absence_type_name || 'Absent'}
-        </div>`;
+        content += `<div class="shift-cell absent"><i class="bi bi-person-dash me-1"></i>${a.absence_type_name || 'Absent'}</div>`;
       });
       dayAss.forEach(a => {
         const sh = shiftById[a.shift];
         if (!sh) return;
         const start = new Date(sh.start_datetime);
         const end   = new Date(sh.end_datetime);
-        const isNight = sh.is_night_shift;
-        content += `<div class="shift-cell ${isNight ? 'night' : ''}" title="${sh.shift_type_name || ''} — ${sh.care_unit_name || ''}">
+        content += `<div class="shift-cell ${sh.is_night_shift ? 'night' : ''}">
           <div>${sh.shift_type_name || 'Garde'}</div>
           <div style="opacity:.75">${start.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}–${end.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>
           <div style="opacity:.75;font-size:.72rem">${sh.care_unit_name || ''}</div>
+        </div>`;
+      });
+      dayDraft.forEach(da => {
+        const start = new Date(da.shift_start);
+        const end   = new Date(da.shift_end);
+        content += `<div class="shift-cell draft ${da.is_night_shift ? 'night' : ''}" title="Brouillon — non publié">
+          <div><i class="bi bi-magic me-1" style="font-size:.7rem;"></i>${da.shift_type_name || 'Garde'}</div>
+          <div style="opacity:.75">${start.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}–${end.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>
+          <div style="opacity:.75;font-size:.72rem">${da.care_unit_name || ''}</div>
         </div>`;
       });
 
@@ -293,7 +524,6 @@ function renderByService(days, todayISO) {
   const cuById = {};
   allCareUnits.forEach(cu => { cuById[cu.id] = cu; });
 
-  // Grouper shifts par unité de soin, puis par jour
   const shiftsByCU = {};
   allShifts.forEach(sh => {
     const cuId = sh.care_unit;
@@ -307,15 +537,16 @@ function renderByService(days, todayISO) {
     shiftsByCU[cuId][iso].push(sh);
   });
 
-  // Index assignments par shift
   const assByShift = {};
-  allAssignments.forEach(a => {
-    if (!assByShift[a.shift]) assByShift[a.shift] = [];
-    assByShift[a.shift].push(a);
-  });
+  allAssignments.forEach(a => { assByShift[a.shift] = assByShift[a.shift] || []; assByShift[a.shift].push(a); });
+
+  // Brouillon par shift
+  const draftByShift = {};
+  draftAssignments.forEach(da => { draftByShift[da.shift] = draftByShift[da.shift] || []; draftByShift[da.shift].push(da); });
 
   const cuIds = Object.keys(shiftsByCU);
-  document.getElementById('planning-info').textContent = `${cuIds.length} unité(s) avec des gardes`;
+  document.getElementById('planning-info').textContent =
+    `${cuIds.length} unité(s) avec des gardes${draftSession ? ' · 🟡 Brouillon actif' : ''}`;
 
   if (cuIds.length === 0) {
     tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">Aucune garde dans cette période</td></tr>';
@@ -334,19 +565,20 @@ function renderByService(days, todayISO) {
       let content = '';
       dayShifts.forEach(sh => {
         const assigned = assByShift[sh.id] || [];
-        const start = new Date(sh.start_datetime);
-        const end   = new Date(sh.end_datetime);
-        const isFull  = assigned.length >= sh.max_staff;
-        const isEmpty = assigned.length < sh.min_staff;
+        const drafts   = draftByShift[sh.id] || [];
+        const total    = assigned.length + drafts.length;
+        const start    = new Date(sh.start_datetime);
+        const end      = new Date(sh.end_datetime);
+        const isEmpty  = total < sh.min_staff;
         const cls = isEmpty ? 'empty' : (sh.is_night_shift ? 'night' : '');
-        const staffNames = assigned.map(a => {
-          const s = staffById[a.staff];
-          return s ? `${s.first_name[0]}. ${s.last_name}` : '';
-        }).join(', ');
+        const staffNames = [
+          ...assigned.map(a => { const s = staffById[a.staff]; return s ? `${s.first_name[0]}. ${s.last_name}` : ''; }),
+          ...drafts.map(da => `<span style="color:#ff9800">✦${da.staff_name}</span>`),
+        ].filter(Boolean).join(', ');
 
-        content += `<div class="shift-cell ${cls}" title="${staffNames || 'Non couvert'}">
+        content += `<div class="shift-cell ${cls}">
           <div><strong>${sh.shift_type_name || 'Garde'}</strong> ${start.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}–${end.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>
-          <div style="opacity:.8">${assigned.length}/${sh.max_staff} — ${staffNames || '<em>Non couvert</em>'}</div>
+          <div style="opacity:.8">${total}/${sh.max_staff} — ${staffNames || '<em>Non couvert</em>'}</div>
         </div>`;
       });
 
