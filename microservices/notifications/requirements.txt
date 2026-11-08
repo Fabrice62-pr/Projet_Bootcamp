@@ -1,0 +1,4 @@
+azure-functions==1.21.3
+azure-data-tables==12.6.0
+azure-communication-email==1.0.0
+tzdata==2025.3

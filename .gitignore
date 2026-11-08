@@ -1,0 +1,62 @@
+# ===== Secrets et configuration locale =====
+.env
+.env.*
+!.env.example
+*.env
+local_settings.py
+settings_local.py
+secrets.json
+credentials.json
+*.pem
+*.key
+*.crt
+*.p12
+
+# ===== Bases de donnees et sauvegardes =====
+db.sqlite3
+db.sqlite3-journal
+*.sqlite3
+*.db
+*.dump
+*.sql.gz
+*.backup
+
+# ===== Environnements virtuels =====
+myhospi/
+venv/
+.venv/
+env/
+ENV/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Django =====
+/hospiplan/media/
+/hospiplan/staticfiles/
+*.log
+logs/
+
+# ===== Azure Functions / Azurite =====
+local.settings.json
+.python_packages/
+.azure/
+__azurite_db*
+__blobstorage__/
+__queuestorage__/
+
+# ===== Editeurs et systeme =====
+.vscode/
+.idea/
+.claude/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store

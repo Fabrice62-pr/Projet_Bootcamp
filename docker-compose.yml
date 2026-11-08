@@ -1,0 +1,123 @@
+# Environnement local complet de HospiPlan.
+# Lancer : docker compose up --build
+#
+#   http://localhost:8000          Core (application)
+#   http://localhost:8001/docs     Moteur de planning (Swagger)
+#   http://localhost:7071/api/...  Notifications (Azure Functions)
+#   http://localhost:7072/api/...  Reporting (Azure Functions)
+#   http://localhost:8025          Mailpit : boite mail de test
+#
+# Microservices : engine, notifications, reporting.
+
+# Chaine de connexion d'Azurite, l'emulateur local d'Azure Storage. La cle est
+# publique et documentee par Microsoft : elle ne protege rien, ce n'est pas un secret.
+x-azurite-connection: &azurite-connection "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;"
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-hospiplandb}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD manquant dans .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Port 5433 cote machine pour ne pas entrer en conflit avec un
+    # PostgreSQL deja installe sur le PC (5432).
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-hospiplandb}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Emulateur Azure Storage (files d'attente + tables), equivalent local du
+  # compte de stockage Azure.
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.33.0
+    command: azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --skipApiVersionCheck --loose
+    volumes:
+      - azurite:/data
+    ports:
+      - "10000-10002:10000-10002"
+
+  # Fausse boite mail : recoit les e-mails en mode EMAIL_MODE=mailpit.
+  mailpit:
+    image: axllent/mailpit:v1.21.8
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
+  # Microservice 1 : moteur de planning (FastAPI, sans base de donnees).
+  engine:
+    build: ./microservices/engine
+    environment:
+      ENGINE_API_KEY: ${ENGINE_API_KEY:?ENGINE_API_KEY manquant dans .env}
+    ports:
+      - "8001:8001"
+
+  # Microservice 2 : notifications (Azure Functions, declenche par la file).
+  notifications:
+    build: ./microservices/notifications
+    environment:
+      AzureWebJobsStorage: *azurite-connection
+      EVENTS_STORAGE: *azurite-connection
+      NOTIFICATIONS_QUEUE: notification-events
+      EMAIL_MODE: ${EMAIL_MODE:-mailpit}
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      ACS_CONNECTION_STRING: ${ACS_CONNECTION_STRING:-}
+      ACS_SENDER_ADDRESS: ${ACS_SENDER_ADDRESS:-}
+      NOTIFICATIONS_API_KEY: ${NOTIFICATIONS_API_KEY:?NOTIFICATIONS_API_KEY manquant dans .env}
+    ports:
+      - "7071:80"
+    depends_on:
+      - azurite
+      - mailpit
+
+  # Microservice 3 : reporting (Azure Functions : PDF a la demande + minuteur hebdo).
+  reporting:
+    build: ./microservices/reporting
+    environment:
+      AzureWebJobsStorage: *azurite-connection
+      EVENTS_STORAGE: *azurite-connection
+      NOTIFICATIONS_QUEUE: notification-events
+      CORE_URL: http://core:8000
+      CORE_SERVICE_KEY: ${REPORTING_SERVICE_KEY:?REPORTING_SERVICE_KEY manquant dans .env}
+      REPORTING_API_KEY: ${REPORTING_API_KEY:?REPORTING_API_KEY manquant dans .env}
+      WEEKLY_REPORT_SCHEDULE: "0 0 5 * * 1"
+    ports:
+      - "7072:80"
+    depends_on:
+      - azurite
+
+  core:
+    build: ./hospiplan
+    env_file: .env
+    environment:
+      # Dans le reseau Docker, la base s'appelle "db", pas "localhost".
+      DB_HOST: db
+      DB_PORT: "5432"
+      ENGINE_URL: http://engine:8001
+      REPORTING_URL: http://reporting:80
+      EVENTS_STORAGE_CONNECTION_STRING: *azurite-connection
+      EVENTS_QUEUE_NAME: notification-events
+      DJANGO_DEBUG: "False"
+      # "core" : nom d'hote utilise par le service reporting dans le reseau Docker.
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,core
+      # En local on reste en HTTP : on desactive la redirection HTTPS.
+      DJANGO_SECURE_SSL_REDIRECT: "False"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      engine:
+        condition: service_healthy
+      azurite:
+        condition: service_started
+
+volumes:
+  pgdata:
+  azurite:
